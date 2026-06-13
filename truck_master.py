@@ -45,6 +45,15 @@ if 'trucks_db' not in st.session_state:
         }
     ])
 
+# รายชื่อจังหวัดเพื่อจับพิกัด GPS อัตโนมัติ (Mock GPS Lookup)
+province_coords = {
+    "กรุงเทพมหานคร": (13.7563, 100.5018), "เชียงใหม่": (18.7883, 98.9853),
+    "นครราชสีมา": (14.9738, 102.0836), "ขอนแก่น": (16.4322, 102.8236),
+    "ชลบุรี": (12.9236, 100.8824), "ระยอง": (12.6815, 101.2813),
+    "อยุธยา": (14.3532, 100.5682), "ภูเก็ต": (7.8804, 98.3923),
+    "สงขลา": (7.1898, 100.5954), "พิษณุโลก": (16.8211, 100.2659)
+}
+
 # ==========================================
 # 🔐 ระบบจัดการล็อกอิน (Login System)
 # ==========================================
@@ -82,7 +91,7 @@ else:
     with st.sidebar:
         st.header("⚙️ ศูนย์ตั้งค่าระบบ")
         st.write(f"👤 ผู้ใช้ปัจจุบัน: **{st.session_state['user_role']}**")
-        st.success("🌐 แผนที่แชร์แบบเรียลไทม์")
+        st.success("🌐 แผนที่แชร์แบบเรียลไทม์ (เห็นรถทุกคันในทีม)")
         
         if st.button("📴 ออกจากระบบ", use_container_width=True):
             st.session_state['logged_in'] = False
@@ -93,21 +102,21 @@ else:
     # 🗺️ ฟังก์ชันแผนที่รวมเรียลไทม์ (Shared Map Component)
     # ==========================================
     def render_thai_map(data_df, show_financial=True):
-        st.subheader("🗺️ แผนที่พิกัดขนส่งและเส้นทางวิ่งของทีมรถบรรทุก")
+        st.subheader("🗺️ แผนที่พิกัดขนส่งและเส้นทางวิ่งของทีมรถบรรทุกทั้งหมด")
         view_state = pdk.ViewState(latitude=14.5000, longitude=100.5018, zoom=5.5, pitch=20)
         
         map_df = data_df.copy()
         def assign_color(status):
-            if status == "กำลังวิ่ง": return [46, 204, 113, 220]      # เขียว
-            elif status == "จอดพัก": return [241, 196, 15, 220]     # เหลือง
-            else: return [231, 76, 60, 220]                         # แดง
+            if status == "กำลังวิ่ง": return [46, 204, 113, 230]       # เขียว
+            elif status == "จอดพัก": return [241, 196, 15, 230]      # เหลือง
+            else: return [231, 76, 60, 230]                          # แดง
                 
         map_df['color'] = map_df['สถานะ'].apply(assign_color)
         
         route_layer = pdk.Layer(
             "LineLayer", map_df,
             get_source_position="[lon, lat]", get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 250], get_width=4, pickable=False
+            get_color=[52, 152, 219, 200], get_width=4, pickable=False
         )
         
         truck_layer = pdk.Layer(
@@ -116,7 +125,6 @@ else:
             get_radius=22000, pickable=True, filled=True,
         )
         
-        # ปรับ Tooltip แผนที่ตามสิทธิ์ของพนักงานขับรถ ไม่ให้มองเห็นเรื่องเงิน
         financial_html = """
         <b>💵 ค่าน้ำมัน:</b> {ค่าน้ำมัน (บาท)} บาท <br/>
         <b>💰 กำไรต่อเที่ยว:</b> {กำไรต่อเที่ยว (บาท)} บาท <br/>
@@ -131,8 +139,8 @@ else:
                 <b>🚚 ทะเบียนรถ:</b> {{ทะเบียนรถ}} <br/>
                 <b>👤 พนักงานขับรถ:</b> {{ชื่อคนขับ}} <br/>
                 <b>🚦 สถานะปัจจุบัน:</b> {{สถานะ}} <br/>
-                <b>🛫 ต้นทาง:</b> {{จังหวัดรับสินค้า}} <br/>
-                <b>🛬 ปลายทาง:</b> {{จังหวัดส่งสินค้า}} <br/>
+                <b>🛫 ต้นทาง (รับสินค้าจาก):</b> {{จังหวัดรับสินค้า}} <br/>
+                <b>🛬 ปลายทาง (ไปส่งจังหวัด):</b> {{จังหวัดส่งสินค้า}} <br/>
                 <b>📦 สินค้า:</b> {{สิ่งที่บรรทุก}} <br/>
                 {financial_html}
                 <b>⏱️ เวลา ETA:</b> {{เวลาคาดว่าจะถึง (ETA)}}
@@ -142,35 +150,27 @@ else:
         )
         st.pydeck_chart(r)
 
-    # หัวข้อหน้าหลัก
-    st.title("🚚 ระบบบริหารจัดการขนส่งเรียลไทม์ (TruckMaster)")
-
-    # การตั้งค่ารูปแบบคอลัมน์มาตรฐาน
+    # รูปแบบคอลัมน์มาตรฐานสำหรับเจ้าของและบัญชี
     base_column_config = {
-        "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium", required=True),
+        "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium"),
         "ชื่อคนขับ": st.column_config.TextColumn("👤 ชื่อคนขับ", width="medium"),
         "สิ่งที่บรรทุก": st.column_config.TextColumn("📦 สิ่งที่บรรทุก", width="medium"),
-        "จังหวัดรับสินค้า": st.column_config.TextColumn("🛫 จังหวัดรับสินค้า", width="medium"),
-        "จังหวัดส่งสินค้า": st.column_config.TextColumn("🛬 จังหวัดส่งสินค้า", width="medium"),
+        "จังหวัดรับสินค้า": st.column_config.TextColumn("🛫 รับสินค้าจาก", width="medium"),
+        "จังหวัดส่งสินค้า": st.column_config.TextColumn("🛬 ไปส่งจังหวัด", width="medium"),
         "เวลาคาดว่าจะถึง (ETA)": st.column_config.TextColumn("⏱️ ETA", width="small"),
         "สถานะ": st.column_config.SelectboxColumn("🚦 สถานะ", options=["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"], width="small"),
-        "ค่าน้ำมัน (บาท)": st.column_config.NumberColumn("💵 ค่าน้ำมัน (บาท)", format="฿%d", width="small"),
-        "กำไรต่อเที่ยว (บาท)": st.column_config.NumberColumn("💰 กำไรต่อเที่ยว (บาท)", format="฿%d", width="small"),
-        "lat": st.column_config.NumberColumn("🌐 พิกัด Lat", format="%.4f", width="small"),
-        "lon": st.column_config.NumberColumn("🌐 พิกัด Lon", format="%.4f", width="small"),
-        "dest_lat": st.column_config.NumberColumn("🏁 ปลายทาง Lat", format="%.4f", width="small"),
-        "dest_lon": st.column_config.NumberColumn("🏁 ปลายทาง Lon", format="%.4f", width="small"),
+        "ค่าน้ำมัน (บาท)": st.column_config.NumberColumn("💵 ค่าน้ำมัน", format="฿%d", width="small"),
+        "กำไรต่อเที่ยว (บาท)": st.column_config.NumberColumn("💰 กำไรต่อเที่ยว", format="฿%d", width="small"),
     }
 
     # ==========================================
-    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (Owner) -> เห็นครบ แก้ไขได้ทั้งหมด
+    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (Owner)
     # ==========================================
     if st.session_state['user_role'] == "เจ้าของธุรกิจ (Owner)":
-        st.subheader("📊 แดชบอร์ดผู้บริหาร (สิทธิ์: เจ้าของธุรกิจ)")
+        st.title("🚚 ระบบบริหารจัดการขนส่ง (สิทธิ์: เจ้าของธุรกิจ)")
         tab1, tab2 = st.tabs(["📋 สรุปข้อมูลตารางรถทั้งหมด", "🗺️ แผนที่พิกัดและเส้นทางเรียลไทม์"])
         
         with tab1:
-            st.write("💡 เถ้าแก่สามารถดับเบิลคลิกแก้ไขข้อมูล ตัวเลข หรือพิกัดได้ทุกช่อง:")
             edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic", hide_index=True, column_config=base_column_config)
             if st.button("💾 บันทึกข้อมูลที่แก้ไขทั้งหมด", use_container_width=True, type="primary"):
                 st.session_state['trucks_db'] = edited_df
@@ -180,21 +180,27 @@ else:
             render_thai_map(df, show_financial=True)
 
     # ==========================================
-    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (Accountant) -> เห็นครบ เหมือนเถ้าแก่ แต่ห้ามแก้ไข
+    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (Accountant)
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานบัญชี (Accountant)":
-        st.subheader("💰 หน้าต่างบันทึกบัญชีและการเงิน (สิทธิ์: พนักงานบัญชี)")
+        st.title("💰 ระบบบันทึกบัญชีและการเงิน (สิทธิ์: พนักงานบัญชี)")
         tab1, tab2 = st.tabs(["💵 ตารางตรวจสอบการเงิน (อ่านอย่างเดียว)", "🗺️ แผนที่พิกัดและเส้นทางเรียลไทม์"])
         
         with tab1:
-            st.info("🔒 สิทธิ์พนักงานบัญชี: สามารถดูรายละเอียดข้อมูลรวมถึงการเงินได้ทั้งหมด แต่ระบบปิดการแก้ไขข้อความ")
-            # ใช้ st.dataframe แทน st.data_editor เพื่อล็อกไม่ให้พนักงานบัญชีแก้ไขข้อความใดๆ ได้
+            st.info("🔒 สิทธิ์พนักงานบัญชี: ดูรายละเอียดข้อมูลและการเงินได้เหมือนเจ้าของธุรกิจ แต่ไม่สามารถแก้ไขข้อความใดๆ ได้")
             st.dataframe(df, use_container_width=True, hide_index=True, column_config=base_column_config)
         with tab2:
             render_thai_map(df, show_financial=True)
 
     # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> แก้ไขรายละเอียดได้เหมือนเเถ้าแก่ แต่มองไม่เห็นเรื่องเงิน
+    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🆕 ฟอร์มส่งข้อมูล + แชร์แผนที่เห็นรถคันอื่น
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
-        st.subheader("📝 ระบบรายงานสถานะและตารางรถบรรทุก (สิทธิ์: พนักงานขับรถ)")
+        st.title("📝 ระบบรายงานสถานะสำหรับพนักงานขับรถ (สิทธิ์: พนักงานขับรถ)")
+        tab1, tab2 = st.tabs(["✍️ กรอกข้อมูลส่งรายละเอียดให้บริษัท", "🗺️ แผนที่พิกัดรถของฉันและเพื่อนร่วมงาน"])
+        
+        with tab1:
+            st.info("พี่คนขับกรอกรายละเอียดงานด้านล่างเพื่ออัปเดตตำแหน่งขึ้นระบบส่วนกลางให้บริษัทและเพื่อนๆ เห็นได้ทันทีครับ")
+            
+            with st.form("driver_report_form"):
+                col1, col2 = st.columns(2)
