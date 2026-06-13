@@ -2,16 +2,17 @@ import streamlit as st
 import pandas as pd
 
 # ตั้งค่าหน้าตาแอป
-st.set_page_config(page_title="TruckMaster Pro", page_icon="🚚", layout="wide")
+st.set_page_config(page_title="TruckMaster Pro v2", page_icon="🚚", layout="wide")
 
-# ระบบจำลองฐานข้อมูลเพื่อบันทึกข้อมูล (ข้อมูลจะคงอยู่ตลอดตราบใดที่แอปยังทำงาน)
+# 1. ฐานข้อมูลหลัก (หัวข้อภาษาไทย และมีข้อมูลการเงิน)
 if 'trucks_db' not in st.session_state:
     st.session_state['trucks_db'] = pd.DataFrame([
-        {"id": "TRK-01", "driver": "สมชาย ใจดี", "cargo": "ข้าวสาร 20 ตัน", "eta": "14:30", "status": "กำลังวิ่ง"},
-        {"id": "TRK-02", "driver": "วิชัย รักดี", "cargo": "เหล็กเส้น 15 ตัน", "eta": "18:00", "status": "จอดพัก"},
+        {"ทะเบียนรถ": "TRK-01", "ชื่อคนขับ": "สมชาย ใจดี", "สิ่งที่บรรทุก": "ข้าวสาร 20 ตัน", "เวลาคาดว่าจะถึง (ETA)": "14:30", "สถานะ": "กำลังวิ่ง", "ค่าน้ำมัน (บาท)": 2500, "กำไร (บาท)": 4500, "latitude": 13.7563, "longitude": 100.5018},
+        {"ทะเบียนรถ": "TRK-02", "ชื่อคนขับ": "วิชัย รักดี", "สิ่งที่บรรทุก": "เหล็กเส้น 15 ตัน", "เวลาคาดว่าจะถึง (ETA)": "18:00", "สถานะ": "จอดพัก", "ค่าน้ำมัน (บาท)": 3000, "กำไร (บาท)": 6200, "latitude": 14.9738, "longitude": 102.0836},
+        {"ทะเบียนรถ": "TRK-03", "ชื่อคนขับ": "อนันต์ ยอดเยี่ยม", "สิ่งที่บรรทุก": "อาหารแช่แข็ง", "เวลาคาดว่าจะถึง (ETA)": "ถึงแล้ว", "สถานะ": "ส่งงานเสร็จแล้ว", "ค่าน้ำมัน (บาท)": 2200, "กำไร (บาท)": 3800, "latitude": 12.9236, "longitude": 100.8824}
     ])
 
-# ระบบจัดการล็อกอิน (Login System)
+# 2. ระบบจัดการล็อกอิน (Login System)
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'user_role' not in st.session_state:
@@ -27,6 +28,10 @@ if not st.session_state['logged_in']:
             st.session_state['logged_in'] = True
             st.session_state['user_role'] = "เจ้าของธุรกิจ"
             st.rerun()
+        elif username == "account" and password == "money1234":
+            st.session_state['logged_in'] = True
+            st.session_state['user_role'] = "พนักงานบัญชี"
+            st.rerun()
         elif username == "driver" and password == "driver1234":
             st.session_state['logged_in'] = True
             st.session_state['user_role'] = "คนขับรถบรรทุก"
@@ -34,7 +39,7 @@ if not st.session_state['logged_in']:
         else:
             st.error("❌ ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง")
 else:
-    # แถบเมนูด้านข้างสำหรับออกจากระบบ
+    # แถบเมนูด้านข้างสำหรับแสดงผู้ใช้และปุ่มออกจากระบบ
     st.sidebar.title(f"👤 ผู้ใช้: {st.session_state['user_role']}")
     if st.sidebar.button("📴 ออกจากระบบ", use_container_width=True):
         st.session_state['logged_in'] = False
@@ -44,47 +49,87 @@ else:
     df = st.session_state['trucks_db']
 
     # ==========================================
-    # 👑 ฝั่งที่ 1: หน้าจอสำหรับ "เจ้าของธุรกิจ" (สำหรับเปิดดูรายงาน)
+    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (แก้ไขตารางได้ทุกช่อง + ดูแผนที่)
     # ==========================================
     if st.session_state['user_role'] == "เจ้าของธุรกิจ":
-        st.title("📊 แดชบอร์ดสรุปงานขนส่ง (สำหรับเเถ้าแก่)")
-        st.write("นี่คือข้อมูลปัจจุบันที่พนักงานขับรถส่งรายงานเข้ามาในระบบครับ")
+        tab1, tab2 = st.tabs(["📊 ตารางข้อมูลทั้งหมด (พิมพ์แก้ไขได้)", "🗺️ แผนที่เรียลไทม์"])
         
-        # แสดงจำนวนรถในระบบปัจจุบัน
-        st.metric("จำนวนรถที่รายงานตัวเข้ามา", f"{len(df)} คัน")
-        
-        # แสดงตารางรายงานที่คนขับส่งเข้ามาแบบละเอียด
-        st.subheader("📋 ตารางรายละเอียดงานเรียลไทม์")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        with tab1:
+            st.header("👑 หน้าจอจัดการระบบสำหรับเถ้าแก่")
+            st.info("💡 คุณสามารถดับเบิ้ลคลิกที่ช่องในตารางเพื่อพิมพ์แก้ไขข้อมูล หรือกดปุ่มด้านล่างตารางเพื่อเพิ่มแถวรถใหม่ได้เลยครับ")
+            
+            # เปิดตารางให้แก้ไขได้สดๆ (Data Editor)
+            edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic", hide_index=True)
+            
+            if st.button("💾 บันทึกการเปลี่ยนแปลงตาราง", use_container_width=True, type="primary"):
+                st.session_state['trucks_db'] = edited_df
+                st.success("✅ บันทึกข้อมูลที่แก้ไขลงระบบเรียบร้อยแล้ว!")
+                st.rerun()
+                
+        with tab2:
+            st.header("🗺️ แผนที่พิกัดรถบรรทุกทั้งหมด")
+            st.map(df)
 
     # ==========================================
-    # 🚛 ฝั่งที่ 2: หน้าจอสำหรับ "คนขับรถ" (เปิดให้พิมพ์กรอกข้อมูลได้เอง)
+    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (แก้ไขค่าน้ำมัน/กำไรในตาราง + ดูแผนที่)
+    # ==========================================
+    elif st.session_state['user_role'] == "พนักงานบัญชี":
+        tab1, tab2 = st.tabs(["💰 ตารางบันทึกบัญชีและการเงิน", "🗺️ แผนที่เรียลไทม์"])
+        
+        with tab1:
+            st.header("💵 หน้าจอตรวจสอบบัญชีค่าน้ำมันและกำไร")
+            st.info("💡 พนักงานบัญชีสามารถพิมพ์แก้ไขตัวเลขค่าน้ำมันและกำไรในตารางนี้ได้โดยตรงครับ")
+            
+            # พนักงานบัญชีแก้ตารางเงินได้
+            edited_df = st.data_editor(df, use_container_width=True, hide_index=True)
+            
+            if st.button("💾 บันทึกตัวเลขบัญชี", use_container_width=True, type="primary"):
+                st.session_state['trucks_db'] = edited_df
+                st.success("✅ บันทึกข้อมูลทางบัญชีเรียบร้อยแล้ว!")
+                st.rerun()
+                
+        with tab2:
+            st.header("🗺️ แผนที่พิกัดรถบรรทุก")
+            st.map(df)
+
+    # ==========================================
+    # 🚛 สิทธิ์ที่ 3: คนขับรถ (กรอกข้อมูลผ่านฟอร์มมือถือ + ดูแผนที่)
     # ==========================================
     elif st.session_state['user_role'] == "คนขับรถบรรทุก":
-        st.title("📝 ฟอร์มรายงานตัวและบันทึกงาน")
-        st.info("พี่ๆ คนขับกรอกข้อมูลการวิ่งรถปัจจุบันลงในช่องด้านล่างนี้ได้เลยครับ")
+        tab1, tab2 = st.tabs(["📝 ฟอร์มรายงานตัวของคนขับ", "🗺️ แผนที่สถานะเพื่อนร่วมงาน"])
         
-        # สร้างฟอร์มสำหรับพิมพ์กรอกข้อมูล
-        with st.form("driver_report_form"):
-            driver_name = st.text_input("👤 ชื่อ-นามสกุล ของคุณ:")
-            truck_id = st.text_input("🆔 ทะเบียนรถ หรือ รหัสรถ (เช่น TRK-05 / กข-1234):")
-            cargo_detail = st.text_input("📦 สิ่งที่บรรทุก / สินค้าที่ขน:")
-            eta_time = st.text_input("⏱️ เวลาที่คาดว่าจะไปถึง (เช่น 17:00 หรือ ถึงแล้ว):")
-            status_now = st.selectbox("🚦 สถานะปัจจุบันของคุณ:", ["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"])
+        with tab1:
+            st.header("📝 พิมพ์กรอกข้อมูลการวิ่งรถของคุณ")
+            st.warning("⚠️ ระบบปิดการมองเห็นข้อมูลการเงิน เพื่อความปลอดภัยของบริษัท")
             
-            # ปุ่มกดส่งข้อมูล
-            submit_button = st.form_submit_button("📤 ส่งข้อมูลรายงานให้บริษัท", use_container_width=True)
-            
-            if submit_button:
-                if driver_name == "" or truck_id == "":
-                    st.error("❌ กรุณากรอก 'ชื่อของคุณ' และ 'ทะเบียนรถ' ก่อนกดส่งนะครับ")
-                else:
-                    # ค้นหาว่าเลขทะเบียนรถนี้เคยส่งมาหรือยัง ถ้าเคยส่งแล้วให้เขียนทับ ถ้ายังให้เพิ่มแถวใหม่
-                    if truck_id in df['id'].values:
-                        st.session_state['trucks_db'].loc[df['id'] == truck_id, ['driver', 'cargo', 'eta', 'status']] = [driver_name, cargo_detail, eta_time, status_now]
+            with st.form("driver_input_form"):
+                input_truck_id = st.text_input("🆔 ทะเบียนรถของคุณ (เช่น TRK-01 หรือ กข-1234):")
+                input_driver_name = st.text_input("👤 ชื่อ-นามสกุล ของคุณ:")
+                input_cargo = st.text_input("📦 สิ่งที่บรรทุก / สินค้าปัจจุบัน:")
+                input_eta = st.text_input("⏱️ เวลาคาดว่าจะถึงปลายทาง (ETA):")
+                input_status = st.selectbox("🚦 สถานะรถปัจจุบัน:", ["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"])
+                
+                submit = st.form_submit_button("📤 ส่งรายงานให้เถ้าแก่และบัญชี", use_container_width=True)
+                
+                if submit:
+                    if input_truck_id == "" or input_driver_name == "":
+                        st.error("❌ จำเป็นต้องระบุ 'ทะเบียนรถ' และ 'ชื่อคนขับ' ครับ")
                     else:
-                        new_data = pd.DataFrame([{"id": truck_id, "driver": driver_name, "cargo": cargo_detail, "eta": eta_time, "status": status_now}])
-                        st.session_state['trucks_db'] = pd.concat([st.session_state['trucks_db'], new_data], ignore_index=True)
-                    
-                    st.success("✅ ส่งข้อมูลสำเร็จ! ข้อมูลถูกส่งไปที่หน้าจอของเถ้าแก่เรียบร้อยแล้วครับ")
-
+                        # ถ้าทะเบียนซ้ำให้เขียนทับข้อมูลเดิม ถ้าทะเบียนใหม่ให้เพิ่มแถว
+                        if input_truck_id in df['ทะเบียนรถ'].values:
+                            st.session_state['trucks_db'].loc[df['ทะเบียนรถ'] == input_truck_id, ['ชื่อคนขับ', 'สิ่งที่บรรทุก', 'เวลาคาดว่าจะถึง (ETA)', 'สถานะ']] = [input_driver_name, input_cargo, input_eta, input_status]
+                        else:
+                            new_row = pd.DataFrame([{
+                                "ทะเบียนรถ": input_truck_id, "ชื่อคนขับ": input_driver_name, 
+                                "สิ่งที่บรรทุก": input_cargo, "เวลาคาดว่าจะถึง (ETA)": input_eta, 
+                                "สถานะ": input_status, "ค่าน้ำมัน (บาท)": 0, "กำไร (บาท)": 0,
+                                "latitude": 13.7563, "longitude": 100.5018
+                            }])
+                            st.session_state['trucks_db'] = pd.concat([st.session_state['trucks_db'], new_row], ignore_index=True)
+                        
+                        st.success(f"🎉 บันทึกข้อมูลเรียบร้อย! ข้อมูลถูกส่งไปที่ตารางของเถ้าแก่และบัญชีแล้ว")
+                        st.rerun()
+                        
+        with tab2:
+            st.header("🗺️ แผนที่ดูพิกัดรถคันอื่นๆ ในทีม")
+            st.map(df)
