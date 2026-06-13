@@ -107,16 +107,16 @@ else:
         
         map_df = data_df.copy()
         def assign_color(status):
-            if status == "กำลังวิ่ง": return [46, 204, 113, 230]       # เขียว
-            elif status == "จอดพัก": return [241, 196, 15, 230]      # เหลือง
-            else: return [231, 76, 60, 230]                          # แดง
+            if status == "กำลังวิ่ง": return [46, 204, 113, 200]       # เขียว
+            elif status == "จอดพัก": return [241, 196, 15, 200]      # เหลือง
+            else: return [231, 76, 60, 200]                          # แดง
                 
         map_df['color'] = map_df['สถานะ'].apply(assign_color)
         
         route_layer = pdk.Layer(
             "LineLayer", map_df,
             get_source_position="[lon, lat]", get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 200], get_width=4, pickable=False
+            get_color=[52, 152, 219, 150], get_width=4, pickable=False
         )
         
         truck_layer = pdk.Layer(
@@ -193,7 +193,7 @@ else:
             render_thai_map(df, show_financial=True)
 
     # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🆕 ฟอร์มส่งข้อมูล + แชร์แผนที่เห็นรถคันอื่น
+    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🛠️ จุดที่แก้ไขเพื่อปลดล็อกฟอร์มให้กรอกได้ตามรูปภาพ
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
         st.title("📝 ระบบรายงานสถานะสำหรับพนักงานขับรถ (สิทธิ์: พนักงานขับรถ)")
