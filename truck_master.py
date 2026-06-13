@@ -116,7 +116,7 @@ else:
         route_layer = pdk.Layer(
             "LineLayer", map_df,
             get_source_position="[lon, lat]", get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 150], get_width=4, pickable=False
+            get_color=[52, 152, 219, 200], get_width=4, pickable=False
         )
         
         truck_layer = pdk.Layer(
@@ -193,7 +193,7 @@ else:
             render_thai_map(df, show_financial=True)
 
     # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🛠️ จุดที่แก้ไขเพื่อปลดล็อกฟอร์มให้กรอกได้ตามรูปภาพ
+    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🛠️ [จุดที่แก้ไขแก้ไขบั๊ก] ปรับเปลี่ยนตัวแปรรองรับฟอร์มให้ทำงานได้ถูกต้อง
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
         st.title("📝 ระบบรายงานสถานะสำหรับพนักงานขับรถ (สิทธิ์: พนักงานขับรถ)")
@@ -202,5 +202,4 @@ else:
         with tab1:
             st.info("พี่คนขับกรอกรายละเอียดงานด้านล่างเพื่ออัปเดตตำแหน่งขึ้นระบบส่วนกลางให้บริษัทและเพื่อนๆ เห็นได้ทันทีครับ")
             
-            with st.form("driver_report_form"):
-                col1, col2 = st.columns(2)
+            # สร้างฟอร์มในชื่อตัวแปร driver_form
