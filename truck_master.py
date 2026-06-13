@@ -45,15 +45,6 @@ if 'trucks_db' not in st.session_state:
         }
     ])
 
-# รายชื่อจังหวัดเพื่อจับพิกัด GPS อัตโนมัติ (Mock GPS Lookup)
-province_coords = {
-    "กรุงเทพมหานคร": (13.7563, 100.5018), "เชียงใหม่": (18.7883, 98.9853),
-    "นครราชสีมา": (14.9738, 102.0836), "ขอนแก่น": (16.4322, 102.8236),
-    "ชลบุรี": (12.9236, 100.8824), "ระยอง": (12.6815, 101.2813),
-    "อยุธยา": (14.3532, 100.5682), "ภูเก็ต": (7.8804, 98.3923),
-    "สงขลา": (7.1898, 100.5954), "พิษณุโลก": (16.8211, 100.2659)
-}
-
 # ==========================================
 # 🔐 ระบบจัดการล็อกอิน (Login System)
 # ==========================================
@@ -107,16 +98,17 @@ else:
         
         map_df = data_df.copy()
         def assign_color(status):
-            if status == "กำลังวิ่ง": return [46, 204, 113, 200]       # เขียว
-            elif status == "จอดพัก": return [241, 196, 15, 200]      # เหลือง
-            else: return [231, 76, 60, 200]                          # แดง
+            if status == "กำลังวิ่ง": return [0, 200, 0, 255]       # เขียว
+            elif status == "จอดพัก": return [255, 200, 0, 255]     # เหลือง
+            else: return [255, 0, 0, 255]                          # แดง
                 
         map_df['color'] = map_df['สถานะ'].apply(assign_color)
         
+        # 🛠️ จุดแก้ไขบั๊กสำคัญ: เติมรหัสสีฟ้าสว่าง [0, 191, 255, 200] ป้องกันระบบแผนที่ค้าง
         route_layer = pdk.Layer(
             "LineLayer", map_df,
             get_source_position="[lon, lat]", get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 200], get_width=4, pickable=False
+            get_color=[0, 191, 255, 200], get_width=4, pickable=False
         )
         
         truck_layer = pdk.Layer(
@@ -152,7 +144,7 @@ else:
 
     # รูปแบบคอลัมน์มาตรฐานสำหรับเจ้าของและบัญชี
     base_column_config = {
-        "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium"),
+        "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium", required=True),
         "ชื่อคนขับ": st.column_config.TextColumn("👤 ชื่อคนขับ", width="medium"),
         "สิ่งที่บรรทุก": st.column_config.TextColumn("📦 สิ่งที่บรรทุก", width="medium"),
         "จังหวัดรับสินค้า": st.column_config.TextColumn("🛫 รับสินค้าจาก", width="medium"),
@@ -161,10 +153,14 @@ else:
         "สถานะ": st.column_config.SelectboxColumn("🚦 สถานะ", options=["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"], width="small"),
         "ค่าน้ำมัน (บาท)": st.column_config.NumberColumn("💵 ค่าน้ำมัน", format="฿%d", width="small"),
         "กำไรต่อเที่ยว (บาท)": st.column_config.NumberColumn("💰 กำไรต่อเที่ยว", format="฿%d", width="small"),
+        "lat": st.column_config.NumberColumn("🌐 ปัจจุบัน Lat", format="%.4f", width="small"),
+        "lon": st.column_config.NumberColumn("🌐 ปัจจุบัน Lon", format="%.4f", width="small"),
+        "dest_lat": st.column_config.NumberColumn("🏁 ปลายทาง Lat", format="%.4f", width="small"),
+        "dest_lon": st.column_config.NumberColumn("🏁 ปลายทาง Lon", format="%.4f", width="small"),
     }
 
     # ==========================================
-    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (Owner)
+    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (Owner) -> แก้ไขได้ทุกคอลัมน์
     # ==========================================
     if st.session_state['user_role'] == "เจ้าของธุรกิจ (Owner)":
         st.title("🚚 ระบบบริหารจัดการขนส่ง (สิทธิ์: เจ้าของธุรกิจ)")
@@ -180,7 +176,7 @@ else:
             render_thai_map(df, show_financial=True)
 
     # ==========================================
-    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (Accountant)
+    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (Accountant) -> เห็นครบ แต่ห้ามแก้ไข
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานบัญชี (Accountant)":
         st.title("💰 ระบบบันทึกบัญชีและการเงิน (สิทธิ์: พนักงานบัญชี)")
@@ -193,13 +189,10 @@ else:
             render_thai_map(df, show_financial=True)
 
     # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🛠️ [จุดที่แก้ไขแก้ไขบั๊ก] ปรับเปลี่ยนตัวแปรรองรับฟอร์มให้ทำงานได้ถูกต้อง
+    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🆕 แก้ไขได้เหมือนเถ้าแก่ ยกเว้นค่าน้ำมันและกำไร
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
         st.title("📝 ระบบรายงานสถานะสำหรับพนักงานขับรถ (สิทธิ์: พนักงานขับรถ)")
-        tab1, tab2 = st.tabs(["✍️ กรอกข้อมูลส่งรายละเอียดให้บริษัท", "🗺️ แผนที่พิกัดรถของฉันและเพื่อนร่วมงาน"])
+        tab1, tab2 = st.tabs(["📋 สรุปข้อมูลตารางรถทั้งหมด", "🗺️ แผนที่พิกัดรถของฉันและเพื่อนร่วมงาน"])
         
-        with tab1:
-            st.info("พี่คนขับกรอกรายละเอียดงานด้านล่างเพื่ออัปเดตตำแหน่งขึ้นระบบส่วนกลางให้บริษัทและเพื่อนๆ เห็นได้ทันทีครับ")
-            
-            # สร้างฟอร์มในชื่อตัวแปร driver_form
+        # 1. ถอดคอลัมน์ค่าน้ำมันและกำไรออกเพื่อปกปิดเป็นความลับไม่ให้พนักงานขับรถมองเห็น
