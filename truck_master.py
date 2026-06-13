@@ -100,11 +100,11 @@ else:
         
         def assign_color(status):
             if status == "กำลังวิ่ง": 
-                return [46, 204, 113, 230]   # สีเขียวสด
+                return [46, 204, 113, 255]   # สีเขียวสด
             elif status == "จอดพัก": 
-                return [241, 196, 15, 230]  # สีเหลือง
+                return [241, 196, 15, 255]  # สีเหลือง
             else: 
-                return [231, 76, 60, 230]    # สีแดง
+                return [231, 76, 60, 255]    # สีแดง
                 
         map_df['color'] = map_df['สถานะ'].apply(assign_color)
         
@@ -112,7 +112,7 @@ else:
             "LineLayer", map_df,
             get_source_position="[lon, lat]", 
             get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 180], 
+            get_color=[52, 152, 219, 150], 
             get_width=4, 
             pickable=False
         )
@@ -126,6 +126,7 @@ else:
             filled=True,
         )
         
+        # คัดกรองรายละเอียดกล่องข้อความบนแผนที่ ไม่ให้คนขับเห็นกำไร
         profit_html = "<b>💰 กำไรต่อเที่ยว:</b> {กำไรต่อเที่ยว (บาท)} บาท <br/>" if show_profit else ""
         
         r = pdk.Deck(
@@ -134,7 +135,7 @@ else:
             map_style="https://cartocdn.com", 
             tooltip={
                 "html": f"""
-                <b>🚚 ท ทะเบียนรถ:</b> {{ทะเบียนรถ}} <br/>
+                <b>🚚 ทะเบียนรถ:</b> {{ทะเบียนรถ}} <br/>
                 <b>👤 พนักงานขับรถ:</b> {{ชื่อคนขับ}} <br/>
                 <b>🚦 Status:</b> {{สถานะ}} <br/>
                 <b>🛫 ต้นทาง (รับสินค้าจาก):</b> {{จังหวัดรับสินค้า}} <br/>
@@ -149,7 +150,7 @@ else:
         )
         st.pydeck_chart(r)
 
-    # รูปแบบคอลัมน์มาตรฐานระดับพรีเมียม (สำหรับเจ้าของและบัญชี)
+    # รูปแบบคอลัมน์มาตรฐานระดับพรีเมียม
     base_column_config = {
         "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium", required=True),
         "ชื่อคนขับ": st.column_config.TextColumn("👤 ชื่อคนขับ", width="medium"),
@@ -191,15 +192,15 @@ else:
         
         with tab1:
             st.info("🔒 สิทธิ์พนักงานบัญชี: สามารถดูรายละเอียดข้อมูลรวมถึงค่าน้ำมันและกำไรได้ทั้งหมด แต่ระบบทำการล็อกตารางไว้ป้องกันการแก้ไข")
+            # ใช้ st.dataframe เพื่อล็อกตารางเป็น Read-only ทันที
             st.dataframe(df, use_container_width=True, hide_index=True, column_config=base_column_config)
         with tab2:
             render_thai_map(df, show_profit=True)
 
     # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🛠️ [ซ่อมแซมเสร็จสมบูรณ์] ตารางกลับมาแล้ว ช่องกำไรหายไปถาวร
+    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> แก้ไขได้เหมือนเถ้าแก่ แต่ซ่อนคอลัมน์กำไรถาวร
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
         st.title("📝 ระบบรายงานสถานะสำหรับพนักงานขับรถ (สิทธิ์: พนักงานขับรถ)")
         tab1, tab2 = st.tabs(["📋 อัปเดตรายละเอียดตารางรถของคุณ", "🗺️ แผนที่พิกัดรถของฉันและเพื่อนร่วมงาน"])
         
-        # 1. ทำสำเนาข้อมูลตารางหลัก และตัดเฉพาะช่องผลกำไรออกถาวรไม่ให้คนขับเห็นบนจอ
