@@ -1,140 +1,90 @@
 import streamlit as st
 import pandas as pd
-import pydeck as pdk
-import datetime
 
-# 1. การตั้งค่าหน้าตาแอปเบื้องต้น (App Configuration)
+# ตั้งค่าหน้าตาแอป
 st.set_page_config(page_title="TruckMaster Pro", page_icon="🚚", layout="wide")
 
-# จำลองฐานข้อมูลภายในแอป (สลับสิทธิ์/ข้อมูลเปลี่ยนตามการตั้งค่า)
-if 'role' not in st.session_state:
-    st.session_state['role'] = 'เจ้าของธุรกิจ (Admin)'
+# ระบบจำลองฐานข้อมูลเพื่อบันทึกข้อมูล (ข้อมูลจะคงอยู่ตลอดตราบใดที่แอปยังทำงาน)
 if 'trucks_db' not in st.session_state:
     st.session_state['trucks_db'] = pd.DataFrame([
-        {"id": "TRK-01", "driver": "สมชาย ใจดี", "lat": 13.7563, "lon": 100.5018, "status": "กำลังวิ่ง", "cargo": "ข้าวสาร 20 ตัน", "eta": "14:30", "fuel_rate": 5.2, "profit": 4500},
-        {"id": "TRK-02", "driver": "วิชัย รักดี", "lat": 14.9738, "lon": 102.0836, "status": "จอดพัก", "cargo": "เหล็กเส้น 15 ตัน", "eta": "18:00", "fuel_rate": 4.8, "profit": 6200},
-        {"id": "TRK-03", "driver": "อนันต์ ยอดเยี่ยม", "lat": 12.9236, "lon": 100.8824, "status": "ส่งงานเสร็จแล้ว", "cargo": "อาหารแช่แข็ง", "eta": "ถึงแล้ว", "fuel_rate": 6.0, "profit": 3800},
-        {"id": "TRK-04", "driver": "มานพ ขยันยิ่ง", "lat": 13.5130, "lon": 99.8230, "status": "แจ้งอุบัติเหตุ/รถเสีย", "cargo": "ชิ้นส่วนอิเล็กทรอนิกส์", "eta": "ล่าช้า", "fuel_rate": 0.0, "profit": -1500}
+        {"id": "TRK-01", "driver": "สมชาย ใจดี", "cargo": "ข้าวสาร 20 ตัน", "eta": "14:30", "status": "กำลังวิ่ง"},
+        {"id": "TRK-02", "driver": "วิชัย รักดี", "cargo": "เหล็กเส้น 15 ตัน", "eta": "18:00", "status": "จอดพัก"},
     ])
 
-# ==========================================
-# 📲 เมนูควบคุมและปรับแต่งแอป (Sidebar Settings)
-# ==========================================
-st.sidebar.title("⚙️ ศูนย์ตั้งค่าระบบ")
+# ระบบจัดการล็อกอิน (Login System)
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+if 'user_role' not in st.session_state:
+    st.session_state['user_role'] = None
 
-# ปรับเปลี่ยนสิทธิ์การเข้าถึง (Role Management)
-st.session_state['role'] = st.sidebar.selectbox(
-    "สิทธิ์ผู้ใช้งานปัจจุบัน:", 
-    ["เจ้าของธุรกิจ (Admin)", "คนคุมรถ (Dispatcher)", "พนักงานบัญชี"]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🛠️ การบำรุงรักษา & แจ้งเตือน")
-st.sidebar.warning("⚠️ TRK-04: แจ้งรถเสียแถวสมุทรสงคราม")
-st.sidebar.info("📅 TRK-02: ครบกำหนดเปลี่ยนน้ำมันเครื่องใน 3 วัน")
-
-# ==========================================
-# 📊 1. หน้าแรก & แดชบอร์ดภาพรวม (Dashboard)
-# ==========================================
-st.title("🚚 TruckMaster Pro — ระบบบริหารกองรถบรรทุก")
-st.caption(f"สถานะการเข้าใช้งาน: **{st.session_state['role']}**")
-
-# สรุปตัวเลขสถานะหลัก (Quick Status Bar)
-df = st.session_state['trucks_db']
-total_trucks = len(df)
-running = len(df[df['status'] == 'กำลังวิ่ง'])
-parked = len(df[df['status'] == 'จอดพัก'])
-broken = len(df[df['status'] == 'แจ้งอุบัติเหตุ/รถเสีย'])
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("รถบรรทุกทั้งหมด", f"{total_trucks} คัน")
-col2.metric("กำลังวิ่งงาน🟢", f"{running} คัน")
-col3.metric("จอดพัก/สแตนบาย🟡", f"{parked} คัน")
-col4.metric("แจ้งปัญหา/รถเสีย🔴", f"{broken} คัน", delta="-รถเสีย", delta_color="inverse")
-
-st.markdown("---")
-
-# 🗺️ แผนที่สด (Live GPS Tracking)
-st.subheader("🗺️ แผนที่แสดงตำแหน่งรถบรรทุกเรียลไทม์")
-
-# กำหนดสีตามสถานะรถ
-def assign_color(status):
-    if status == "กำลังวิ่ง": return [0, 200, 0, 200]       # เขียว
-    if status == "จอดพัก": return [255, 200, 0, 200]       # เหลือง
-    if status == "ส่งงานเสร็จแล้ว": return [0, 100, 255, 200] # ฟ้า
-    return [255, 0, 0, 200]                                 # แดง (เสีย)
-
-df['color'] = df['status'].apply(assign_color)
-
-# แสดงแผนที่ 3D ด้วย Pydeck
-st.pydeck_chart(pdk.Deck(
-    map_style='mapbox://styles/mapbox/light-v9',
-    initial_view_state=pdk.ViewState(
-        latitude=13.7563,
-        longitude=100.5018,
-        zoom=6,
-        pitch=30,
-    ),
-    layers=[
-        pdk.Layer(
-            'ScatterplotLayer',
-            data=df,
-            get_position='[lon, lat]',
-            get_color='color',
-            get_radius=15000,
-            pickable=True
-        ),
-    ],
-    tooltip={"text": "ทะเบียน: {id}\nคนขับ: {driver}\nสถานะ: {status}\nสินค้า: {cargo}"}
-))
-
-st.markdown("---")
-
-# ==========================================
-# 📦 2. ข้อมูลวิ่งงาน & 📊 4. บัญชี (สิทธิ์การมองเห็น)
-# ==========================================
-tab1, tab2, tab3 = st.tabs(["📋 รายละเอียดงานรายคัน", "💰 สรุปบัญชีและค่าน้ำมัน", "🔧 บันทึกซ่อมบำรุง"])
-
-with tab1:
-    st.subheader("📦 ข้อมูลการขนส่งและเวลาเดินทาง")
-    selected_truck = st.selectbox("เลือกทะเบียนรถเพื่อดูข้อมูลเจาะลึก:", df['id'].tolist())
-    truck_data = df[df['id'] == selected_truck].iloc[0]
+if not st.session_state['logged_in']:
+    st.title("🔐 เข้าสู่ระบบ TruckMaster Pro")
+    username = st.text_input("ชื่อผู้ใช้งาน (Username)")
+    password = st.text_input("รหัสผ่าน (Password)", type="password")
     
-    c1, c2, c3 = st.columns(3)
-    c1.text_input("👤 พนักงานขับรถ", truck_data['driver'], disabled=True)
-    c2.text_input("📦 สินค้าที่บรรทุก", truck_data['cargo'], disabled=True)
-    c3.text_input("⏱️ เวลาคาดว่าจะถึง (ETA)", truck_data['eta'], disabled=True)
+    if st.button("เข้าสู่ระบบ", use_container_width=True):
+        if username == "admin" and password == "boss1234":
+            st.session_state['logged_in'] = True
+            st.session_state['user_role'] = "เจ้าของธุรกิจ"
+            st.rerun()
+        elif username == "driver" and password == "driver1234":
+            st.session_state['logged_in'] = True
+            st.session_state['user_role'] = "คนขับรถบรรทุก"
+            st.rerun()
+        else:
+            st.error("❌ ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง")
+else:
+    # แถบเมนูด้านข้างสำหรับออกจากระบบ
+    st.sidebar.title(f"👤 ผู้ใช้: {st.session_state['user_role']}")
+    if st.sidebar.button("📴 ออกจากระบบ", use_container_width=True):
+        st.session_state['logged_in'] = False
+        st.session_state['user_role'] = None
+        st.rerun()
 
-with tab2:
-    st.subheader("💵 ข้อมูลทางการเงินและอัตราสิ้นเปลือง")
-    
-    # เงื่อนไขเช็กสิทธิ์ (Role Management): ถ้าเป็นคนคุมรถ จะไม่เห็นแท็บนี้เพื่อความปลอดภัย
-    if st.session_state['role'] == "คนคุมรถ (Dispatcher)":
-        st.error("🔒 ขออภัย สิทธิ์ของคุณไม่สามารถเข้าถึงข้อมูลบัญชีและการเงินได้")
-    else:
-        st.dataframe(
-            df[['id', 'driver', 'fuel_rate', 'profit']].rename(
-                columns={
-                    "id": "ทะเบียนรถ",
-                    "driver": "คนขับ",
-                    "fuel_rate": "อัตราน้ำมัน (กม./ลิตร)",
-                    "profit": "กำไรสุทธิเที่ยวนี้ (บาท)"
-                }
-            ),
-            use_container_width=True
-        )
-        total_profit = df['profit'].sum()
-        st.metric("💵 กำไรสุทธิรวมทุกเที่ยววิ่ง", f"{total_profit:,.2f} บาท")
+    df = st.session_state['trucks_db']
 
-with tab3:
-    st.subheader("🔧 ประวัติการซ่อมและบำรุงรักษา")
-    st.write("บันทึกการซ่อมบำรุงล่าสุดของกองรถ")
-    
-    # ฟอร์มจำลองให้เจ้าของหรือช่างสามารถกดเพิ่มข้อมูลซ่อมบำรุงได้จริง
-    with st.form("maintenance_form"):
-        truck_id = st.selectbox("เลือกประเภทรถ:", df['id'].tolist())
-        service_type = st.text_input("รายการซ่อมบำรุง (เช่น เปลี่ยนยาง, เปลี่ยนน้ำมันเครื่อง)")
-        cost = st.number_input("ค่าใช้จ่าย (บาท)", min_value=0)
-        submitted = st.form_submit_button("บันทึกประวัติ")
-        if submitted:
-            st.success(f"บันทึกข้อมูลรถ {truck_id}: {service_type} ราคา {cost} บาท เรียบร้อยแล้ว!")
+    # ==========================================
+    # 👑 ฝั่งที่ 1: หน้าจอสำหรับ "เจ้าของธุรกิจ" (สำหรับเปิดดูรายงาน)
+    # ==========================================
+    if st.session_state['user_role'] == "เจ้าของธุรกิจ":
+        st.title("📊 แดชบอร์ดสรุปงานขนส่ง (สำหรับเเถ้าแก่)")
+        st.write("นี่คือข้อมูลปัจจุบันที่พนักงานขับรถส่งรายงานเข้ามาในระบบครับ")
+        
+        # แสดงจำนวนรถในระบบปัจจุบัน
+        st.metric("จำนวนรถที่รายงานตัวเข้ามา", f"{len(df)} คัน")
+        
+        # แสดงตารางรายงานที่คนขับส่งเข้ามาแบบละเอียด
+        st.subheader("📋 ตารางรายละเอียดงานเรียลไทม์")
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # ==========================================
+    # 🚛 ฝั่งที่ 2: หน้าจอสำหรับ "คนขับรถ" (เปิดให้พิมพ์กรอกข้อมูลได้เอง)
+    # ==========================================
+    elif st.session_state['user_role'] == "คนขับรถบรรทุก":
+        st.title("📝 ฟอร์มรายงานตัวและบันทึกงาน")
+        st.info("พี่ๆ คนขับกรอกข้อมูลการวิ่งรถปัจจุบันลงในช่องด้านล่างนี้ได้เลยครับ")
+        
+        # สร้างฟอร์มสำหรับพิมพ์กรอกข้อมูล
+        with st.form("driver_report_form"):
+            driver_name = st.text_input("👤 ชื่อ-นามสกุล ของคุณ:")
+            truck_id = st.text_input("🆔 ทะเบียนรถ หรือ รหัสรถ (เช่น TRK-05 / กข-1234):")
+            cargo_detail = st.text_input("📦 สิ่งที่บรรทุก / สินค้าที่ขน:")
+            eta_time = st.text_input("⏱️ เวลาที่คาดว่าจะไปถึง (เช่น 17:00 หรือ ถึงแล้ว):")
+            status_now = st.selectbox("🚦 สถานะปัจจุบันของคุณ:", ["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"])
+            
+            # ปุ่มกดส่งข้อมูล
+            submit_button = st.form_submit_button("📤 ส่งข้อมูลรายงานให้บริษัท", use_container_width=True)
+            
+            if submit_button:
+                if driver_name == "" or truck_id == "":
+                    st.error("❌ กรุณากรอก 'ชื่อของคุณ' และ 'ทะเบียนรถ' ก่อนกดส่งนะครับ")
+                else:
+                    # ค้นหาว่าเลขทะเบียนรถนี้เคยส่งมาหรือยัง ถ้าเคยส่งแล้วให้เขียนทับ ถ้ายังให้เพิ่มแถวใหม่
+                    if truck_id in df['id'].values:
+                        st.session_state['trucks_db'].loc[df['id'] == truck_id, ['driver', 'cargo', 'eta', 'status']] = [driver_name, cargo_detail, eta_time, status_now]
+                    else:
+                        new_data = pd.DataFrame([{"id": truck_id, "driver": driver_name, "cargo": cargo_detail, "eta": eta_time, "status": status_now}])
+                        st.session_state['trucks_db'] = pd.concat([st.session_state['trucks_db'], new_data], ignore_index=True)
+                    
+                    st.success("✅ ส่งข้อมูลสำเร็จ! ข้อมูลถูกส่งไปที่หน้าจอของเถ้าแก่เรียบร้อยแล้วครับ")
+
