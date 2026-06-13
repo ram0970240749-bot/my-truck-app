@@ -18,7 +18,7 @@ if current_time - st.session_state['last_refresh'] > 10:
     st.rerun()
 
 # ==========================================
-# 💾 ฐานข้อมูลแชร์ร่วมกัน (เพิ่มช่อง จังหวัดรับสินค้า และ จังหวัดส่งสินค้า)
+# 💾 ฐานข้อมูลแชร์ร่วมกัน (มีช่อง จังหวัดรับสินค้า และ จังหวัดส่งสินค้า)
 # ==========================================
 if 'trucks_db' not in st.session_state:
     st.session_state['trucks_db'] = pd.DataFrame([
@@ -101,11 +101,11 @@ else:
         map_df = data_df.copy()
         def assign_color(status):
             if status == "กำลังวิ่ง":
-                return [46, 204, 113, 230]      # สีเขียวสด
+                return [46, 204, 113, 255]      # สีเขียวสด
             elif status == "จอดพัก":
-                return [241, 196, 15, 230]     # สีเหลือง
+                return [241, 196, 15, 255]     # สีเหลือง
             else:
-                return [231, 76, 60, 230]       # สีแดง
+                return [231, 76, 60, 255]       # สีแดง
                 
         map_df['color'] = map_df['สถานะ'].apply(assign_color)
         
@@ -114,7 +114,7 @@ else:
             map_df,
             get_source_position="[lon, lat]",
             get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 180], # เส้นสีฟ้า
+            get_color=[52, 152, 219, 200], # เส้นสีฟ้า
             get_width=4,
             pickable=False
         )
@@ -161,7 +161,6 @@ else:
         with tab1:
             st.write("💡 เถ้าแก่สามารถดับเบิลคลิกเพื่อแก้ไขรายละเอียด ลบ หรือเพิ่มแถวข้อมูลรถในตารางนี้ได้โดยตรง:")
             
-            # การตั้งค่าคอลัมน์ให้ออกมาสวยงาม ละเอียด และอ่านง่าย (Data Editor Configuration)
             column_config = {
                 "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", help="รหัสทะเบียนรถบรรทุก", width="medium", required=True),
                 "ชื่อคนขับ": st.column_config.TextColumn("👤 ชื่อคนขับ", width="medium"),
@@ -207,6 +206,7 @@ else:
             render_thai_map(df)
 
     # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver)
+    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 🛠️ จุดแก้ไขย่อหน้าที่ผิดพลาดในรูปภาพ
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
+        st.subheader("📝 ฟอร์มรายงานตัวและตรวจสอบเพื่อนร่วมทาง (สิทธิ์: พนักงานขับรถ)")
