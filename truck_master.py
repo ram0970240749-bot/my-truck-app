@@ -18,7 +18,7 @@ if current_time - st.session_state['last_refresh'] > 10:
     st.rerun()
 
 # ==========================================
-# 💾 ฐานข้อมูลแชร์ร่วมกัน (มีพิกัดปัจจุบันและพิกัดปลายทาง)
+# 💾 ฐานข้อมูลหลักแชร์ร่วมกันในระบบ
 # ==========================================
 if 'trucks_db' not in st.session_state:
     st.session_state['trucks_db'] = pd.DataFrame([
@@ -82,7 +82,7 @@ else:
     with st.sidebar:
         st.header("⚙️ ศูนย์ตั้งค่าระบบ")
         st.write(f"👤 ผู้ใช้ปัจจุบัน: **{st.session_state['user_role']}**")
-        st.success("🌐 แผนที่แชร์แบบเรียลไทม์ (เห็นรถทุกคันในทีม)")
+        st.success("🌐 แผนที่แชร์แบบเรียลไทม์ (ข้อมูลโปร่งใสเห็นเท่ากัน)")
         
         if st.button("📴 ออกจากระบบ", use_container_width=True):
             st.session_state['logged_in'] = False
@@ -92,7 +92,7 @@ else:
     # ==========================================
     # 🗺️ ฟังก์ชันแผนที่รวมเรียลไทม์ (Shared Map Component)
     # ==========================================
-    def render_thai_map(data_df, show_financial=True):
+    def render_thai_map(data_df):
         st.subheader("🗺️ แผนที่พิกัดขนส่งและเส้นทางวิ่งของทีมรถบรรทุกทั้งหมด")
         view_state = pdk.ViewState(latitude=14.5000, longitude=100.5018, zoom=5.5, pitch=20)
         
@@ -100,20 +100,20 @@ else:
         
         def assign_color(status):
             if status == "กำลังวิ่ง": 
-                return [46, 204, 113, 200]       # สีเขียวสด
+                return [0, 200, 0, 200]    # สีเขียวสด
             elif status == "จอดพัก": 
-                return [241, 196, 15, 200]       # สีเหลือง
+                return [255, 200, 0, 200]  # สีเหลือง
             else: 
-                return [231, 76, 60, 200]        # สีแดง
+                return [255, 0, 0, 200]    # สีแดง
                 
         map_df['color'] = map_df['สถานะ'].apply(assign_color)
         
-        # 🛠️ ซ่อมแซมบั๊ก: แก้ไขคำสั่งระบุรหัสสี RGB ของเส้นทางวิ่งให้ถูกต้องเรียบร้อยแล้ว
+        # 🛠️ ตรวจสอบแก้ไขเสร็จสมบูรณ์: เติมชุดตัวเลขสีระบบ RGBA ของเส้นแผนที่แล้ว ป้องกันปัญหาหน้าเว็บล่มค้าง
         route_layer = pdk.Layer(
             "LineLayer", map_df,
             get_source_position="[lon, lat]", 
             get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 150], 
+            get_color="[0, 150, 255, 150]", 
             get_width=4, 
             pickable=False
         )
@@ -127,32 +127,28 @@ else:
             filled=True,
         )
         
-        financial_html = """
-        <b>💵 ค่าน้ำมัน:</b> {ค่าน้ำมัน (บาท)} บาท <br/>
-        <b>💰 กำไรต่อเที่ยว:</b> {กำไรต่อเที่ยว (บาท)} บาท <br/>
-        """ if show_financial else ""
-
         r = pdk.Deck(
             layers=[route_layer, truck_layer],
             initial_view_state=view_state,
             map_style="https://cartocdn.com", 
             tooltip={
-                "html": f"""
-                <b>🚚 ทะเบียนรถ:</b> {{ทะเบียนรถ}} <br/>
-                <b>👤 พนักงานขับรถ:</b> {{ชื่อคนขับ}} <br/>
-                <b>🚦 Status:</b> {{สถานะ}} <br/>
-                <b>🛫 ต้นทาง (รับสินค้าจาก):</b> {{จังหวัดรับสินค้า}} <br/>
-                <b>🛬 ปลายทาง (ไปส่งจังหวัด):</b> {{จังหวัดส่งสินค้า}} <br/>
-                <b>📦 สินค้า:</b> {{สิ่งที่บรรทุก}} <br/>
-                {financial_html}
-                <b>⏱️ เวลา ETA:</b> {{เวลาคาดว่าจะถึง (ETA)}}
+                "html": """
+                <b>🚚 ทะเบียนรถ:</b> {ทะเบียนรถ} <br/>
+                <b>👤 พนักงานขับรถ:</b> {ชื่อคนขับ} <br/>
+                <b>🚦 Status:</b> {สถานะ} <br/>
+                <b>🛫 ต้นทาง (รับสินค้าจาก):</b> {จังหวัดรับสินค้า} <br/>
+                <b>🛬 ปลายทาง (ไปส่งจังหวัด):</b> {จังหวัดส่งสินค้า} <br/>
+                <b>📦 สินค้า:</b> {สิ่งที่บรรทุก} <br/>
+                <b>💵 ค่าน้ำมัน:</b> {ค่าน้ำมัน (บาท)} บาท <br/>
+                <b>💰 กำไรต่อเที่ยว:</b> {กำไรต่อเที่ยว (บาท)} บาท <br/>
+                <b>⏱️ เวลา ETA:</b> {เวลาคาดว่าจะถึง (ETA)}
                 """,
                 "style": {"backgroundColor": "#1a252f", "color": "white", "fontSize": "13px"}
             }
         )
         st.pydeck_chart(r)
 
-    # รูปแบบคอลัมน์มาตรฐานสำหรับหน้าจอข้อมูล
+    # รูปแบบคอลัมน์ตารางระดับพรีเมียม (ทุกฝ่ายมองเห็นหัวข้อเดียวกันทั้งหมด)
     base_column_config = {
         "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium", required=True),
         "ชื่อคนขับ": st.column_config.TextColumn("👤 ชื่อคนขับ", width="medium"),
@@ -160,7 +156,7 @@ else:
         "จังหวัดรับสินค้า": st.column_config.TextColumn("🛫 รับสินค้าจาก", width="medium"),
         "จังหวัดส่งสินค้า": st.column_config.TextColumn("🛬 ไปส่งจังหวัด", width="medium"),
         "เวลาคาดว่าจะถึง (ETA)": st.column_config.TextColumn("⏱️ ETA", width="small"),
-        "สถานะ": st.column_config.SelectboxColumn("🚦 สถานะ", options=["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"], width="small"),
+        "สถานะ": st.column_config.SelectboxColumn("🚦 Status", options=["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"], width="small"),
         "ค่าน้ำมัน (บาท)": st.column_config.NumberColumn("💵 ค่าน้ำมัน", format="฿%d", width="small"),
         "กำไรต่อเที่ยว (บาท)": st.column_config.NumberColumn("💰 กำไรต่อเที่ยว", format="฿%d", width="small"),
         "lat": st.column_config.NumberColumn("🌐 ปัจจุบัน Lat", format="%.4f", width="small"),
@@ -170,7 +166,7 @@ else:
     }
 
     # ==========================================
-    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (Owner) -> แก้ไขได้ทุกคอลัมน์
+    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (Owner) -> เห็นครบ แก้ไขได้ทุกคอลัมน์
     # ==========================================
     if st.session_state['user_role'] == "เจ้าของธุรกิจ (Owner)":
         st.title("🚚 ระบบบริหารจัดการขนส่ง (สิทธิ์: เจ้าของธุรกิจ)")
@@ -183,23 +179,26 @@ else:
                 st.success("✅ บันทึกข้อมูลเรียบร้อยแล้ว!")
                 st.rerun()
         with tab2:
-            render_thai_map(df, show_financial=True)
+            render_thai_map(df)
 
     # ==========================================
-    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (Accountant) -> เห็นครบเหมือนเเถ้าแก่ แต่ล็อกให้อ่านอย่างเดียว (ห้ามแก้)
+    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (Accountant) -> เห็นครบเหมือนเถ้าแก่ แต่ล็อกให้อ่านอย่างเดียว
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานบัญชี (Accountant)":
         st.title("💰 ระบบบันทึกบัญชีและการเงิน (สิทธิ์: พนักงานบัญชี)")
         tab1, tab2 = st.tabs(["💵 ตารางตรวจสอบการเงิน (อ่านอย่างเดียว)", "🗺️ แผนที่พิกัดและเส้นทางเรียลไทม์"])
         
         with tab1:
-            st.info("🔒 สิทธิ์พนักงานบัญชี: สามารถดูรายละเอียดข้อมูลรวมถึงเรื่องเงินได้ทั้งหมด แต่ระบบทำการล็อกตารางไว้เพื่อป้องกันการแก้ไขข้อมูล")
+            st.info("🔒 สิทธิ์พนักงานบัญชี: สามารถดูรายละเอียดข้อมูลรวมถึงเรื่องเงินและพิกัดได้ทั้งหมดเหมือนเถ้าแก่ แต่ระบบทำการล็อกตารางไว้เพื่ออ่านอย่างเดียว")
             st.dataframe(df, use_container_width=True, hide_index=True, column_config=base_column_config)
         with tab2:
-            render_thai_map(df, show_financial=True)
+            render_thai_map(df)
 
     # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> พิมพ์กรอกได้เหมือนเเถ้าแก่ แต่ซ่อนค่าน้ำมันและกำไรถาวร
+    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> 👑 เห็นครบและพิมพ์กรอกรายละเอียดได้เหมือนเถ้าแก่ทุกอย่างแล้ว
     # ==========================================
     elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
         st.title("📝 ระบบรายงานสถานะสำหรับพนักงานขับรถ (สิทธิ์: พนักงานขับรถ)")
+        tab1, tab2 = st.tabs(["📋 อัปเดตรายละเอียดตารางรถทั้งหมด", "🗺️ แผนที่พิกัดรถของฉันและเพื่อนร่วมงาน"])
+        
+        with tab1:
