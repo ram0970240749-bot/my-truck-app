@@ -18,7 +18,7 @@ if current_time - st.session_state['last_refresh'] > 10:
     st.rerun()
 
 # ==========================================
-# 💾 ฐานข้อมูลหลักแชร์ร่วมกันในระบบ
+# 💾 ฐานข้อมูลหลักแชร์ร่วมกันในระบบ (ข้อมูลโปร่งใสทุกฝ่าย)
 # ==========================================
 if 'trucks_db' not in st.session_state:
     st.session_state['trucks_db'] = pd.DataFrame([
@@ -82,7 +82,7 @@ else:
     with st.sidebar:
         st.header("⚙️ ศูนย์ตั้งค่าระบบ")
         st.write(f"👤 ผู้ใช้ปัจจุบัน: **{st.session_state['user_role']}**")
-        st.success("🌐 แผนที่แชร์แบบเรียลไทม์ (ข้อมูลอัปเดตอัตโนมัติ)")
+        st.success("🌐 แชร์ระบบข้อมูลรวม: ทุกฝ่ายเห็นครบและแก้ไขได้เหมือนกัน")
         
         if st.button("📴 ออกจากระบบ", use_container_width=True):
             st.session_state['logged_in'] = False
@@ -92,7 +92,7 @@ else:
     # ==========================================
     # 🗺️ ฟังก์ชันแผนที่รวมเรียลไทม์ (Shared Map Component)
     # ==========================================
-    def render_thai_map(data_df, show_profit=True):
+    def render_thai_map(data_df):
         st.subheader("🗺️ แผนที่พิกัดขนส่งและเส้นทางวิ่งของทีมรถบรรทุกทั้งหมด")
         view_state = pdk.ViewState(latitude=14.5000, longitude=100.5018, zoom=5.5, pitch=20)
         
@@ -108,11 +108,12 @@ else:
                 
         map_df['color'] = map_df['สถานะ'].apply(assign_color)
         
+        # ใส่ค่ารหัสสีฟ้าโปร่งแสงสากล [R, G, B, Alpha] ตรวจสอบไวยากรณ์เรียบร้อยแล้ว
         route_layer = pdk.Layer(
             "LineLayer", map_df,
             get_source_position="[lon, lat]", 
             get_target_position="[dest_lon, dest_lat]",
-            get_color=[52, 152, 219, 150], 
+            get_color=[0, 150, 255, 150], 
             get_width=4, 
             pickable=False
         )
@@ -126,31 +127,28 @@ else:
             filled=True,
         )
         
-        # คัดกรองรายละเอียดกล่องข้อความบนแผนที่ ไม่ให้คนขับเห็นกำไร
-        profit_html = "<b>💰 กำไรต่อเที่ยว:</b> {กำไรต่อเที่ยว (บาท)} บาท <br/>" if show_profit else ""
-        
         r = pdk.Deck(
             layers=[route_layer, truck_layer],
             initial_view_state=view_state,
             map_style="https://cartocdn.com", 
             tooltip={
-                "html": f"""
-                <b>🚚 ทะเบียนรถ:</b> {{ทะเบียนรถ}} <br/>
-                <b>👤 พนักงานขับรถ:</b> {{ชื่อคนขับ}} <br/>
-                <b>🚦 Status:</b> {{สถานะ}} <br/>
-                <b>🛫 ต้นทาง (รับสินค้าจาก):</b> {{จังหวัดรับสินค้า}} <br/>
-                <b>🛬 ปลายทาง (ไปส่งจังหวัด):</b> {{จังหวัดส่งสินค้า}} <br/>
-                <b>📦 สินค้า:</b> {{สิ่งที่บรรทุก}} <br/>
-                <b>💵 ค่าน้ำมัน:</b> {{ค่าน้ำมัน (บาท)}} บาท <br/>
-                {profit_html}
-                <b>⏱️ เวลา ETA:</b> {{เวลาคาดว่าจะถึง (ETA)}}
+                "html": """
+                <b>🚚 ทะเบียนรถ:</b> {ทะเบียนรถ} <br/>
+                <b>👤 พนักงานขับรถ:</b> {ชื่อคนขับ} <br/>
+                <b>🚦 Status:</b> {สถานะ} <br/>
+                <b>🛫 ต้นทาง (รับสินค้าจาก):</b> {จังหวัดรับสินค้า} <br/>
+                <b>🛬 ปลายทาง (ไปส่งจังหวัด):</b> {จังหวัดส่งสินค้า} <br/>
+                <b>📦 สินค้า:</b> {สิ่งที่บรรทุก} <br/>
+                <b>💵 ค่าน้ำมัน:</b> {ค่าน้ำมัน (บาท)} บาท <br/>
+                <b>💰 กำไรต่อเที่ยว:</b> {กำไรต่อเที่ยว (บาท)} บาท <br/>
+                <b>⏱️ เวลา ETA:</b> {เวลาคาดว่าจะถึง (ETA)}
                 """,
                 "style": {"backgroundColor": "#1a252f", "color": "white", "fontSize": "13px"}
             }
         )
         st.pydeck_chart(r)
 
-    # รูปแบบคอลัมน์มาตรฐานระดับพรีเมียม
+    # รูปแบบคอลัมน์ตารางระดับพรีเมียม (ทุกฝ่ายแก้ไขข้อมูลคอลัมน์เดียวกันได้ทั้งหมด)
     base_column_config = {
         "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium", required=True),
         "ชื่อคนขับ": st.column_config.TextColumn("👤 ชื่อคนขับ", width="medium"),
@@ -168,39 +166,27 @@ else:
     }
 
     # ==========================================
-    # 👑 สิทธิ์ที่ 1: เจ้าของธุรกิจ (Owner) -> เห็นครบ แก้ไขได้ทุกคอลัมน์
+    # 🎛️ ส่วนแชร์หน้าจอสำหรับทุกสิทธิ์ (Owner, Accountant, Driver เห็นและทำได้เหมือนกันหมด 100%)
     # ==========================================
-    if st.session_state['user_role'] == "เจ้าของธุรกิจ (Owner)":
-        st.title("🚚 ระบบบริหารจัดการขนส่ง (สิทธิ์: เจ้าของธุรกิจ)")
-        tab1, tab2 = st.tabs(["📋 สรุปข้อมูลตารางรถทั้งหมด", "🗺️ แผนที่พิกัดและเส้นทางเรียลไทม์"])
+    st.title(f"🚚 ระบบบริหารจัดการขนส่งเรียลไทม์ (คุณเข้าใช้งานในสิทธิ์: {st.session_state['user_role']})")
+    tab1, tab2 = st.tabs(["📋 สรุปข้อมูลตารางรถทั้งหมด", "🗺️ แผนที่พิกัดและเส้นทางเรียลไทม์"])
+    
+    with tab1:
+        st.write("💡 คุณสามารถดับเบิลคลิกเพื่อพิมพ์แก้ไขรายละเอียดงาน ค่าน้ำมัน ผลกำไร หรือข้อมูลพิกัดในตารางได้อิสระ:")
         
-        with tab1:
-            edited_df = st.data_editor(df, use_container_width=True, num_rows="dynamic", hide_index=True, column_config=base_column_config)
-            if st.button("💾 บันทึกข้อมูลที่แก้ไขทั้งหมด", use_container_width=True, type="primary"):
-                st.session_state['trucks_db'] = edited_df
-                st.success("✅ บันทึกข้อมูลเรียบร้อยแล้ว!")
-                st.rerun()
-        with tab2:
-            render_thai_map(df, show_profit=True)
-
-    # ==========================================
-    # 💵 สิทธิ์ที่ 2: พนักงานบัญชี (Accountant) -> เห็นครบหมด แต่ห้ามแก้ไข (อ่านอย่างเดียว)
-    # ==========================================
-    elif st.session_state['user_role'] == "พนักงานบัญชี (Accountant)":
-        st.title("💰 ระบบบันทึกบัญชีและการเงิน (สิทธิ์: พนักงานบัญชี)")
-        tab1, tab2 = st.tabs(["💵 ตารางตรวจสอบการเงิน (อ่านอย่างเดียว)", "🗺️ แผนที่พิกัดและเส้นทางเรียลไทม์"])
+        # ทุกฝ่ายใช้ st.data_editor ตัวเต็มตัวเดียวกันทั้งหมด ปลดล็อกการกรอกข้อมูล 100%
+        edited_df = st.data_editor(
+            df, 
+            use_container_width=True, 
+            num_rows="dynamic", 
+            hide_index=True, 
+            column_config=base_column_config
+        )
         
-        with tab1:
-            st.info("🔒 สิทธิ์พนักงานบัญชี: สามารถดูรายละเอียดข้อมูลรวมถึงค่าน้ำมันและกำไรได้ทั้งหมด แต่ระบบทำการล็อกตารางไว้ป้องกันการแก้ไข")
-            # ใช้ st.dataframe เพื่อล็อกตารางเป็น Read-only ทันที
-            st.dataframe(df, use_container_width=True, hide_index=True, column_config=base_column_config)
-        with tab2:
-            render_thai_map(df, show_profit=True)
-
-    # ==========================================
-    # 🚛 สิทธิ์ที่ 3: พนักงานขับรถ (Driver) -> แก้ไขได้เหมือนเถ้าแก่ แต่ซ่อนคอลัมน์กำไรถาวร
-    # ==========================================
-    elif st.session_state['user_role'] == "พนักงานขับรถ (Driver)":
-        st.title("📝 ระบบรายงานสถานะสำหรับพนักงานขับรถ (สิทธิ์: พนักงานขับรถ)")
-        tab1, tab2 = st.tabs(["📋 อัปเดตรายละเอียดตารางรถของคุณ", "🗺️ แผนที่พิกัดรถของฉันและเพื่อนร่วมงาน"])
-        
+        if st.button("💾 บันทึกข้อมูลที่แก้ไขทั้งหมดเข้าสู่ระบบส่วนกลาง", use_container_width=True, type="primary"):
+            st.session_state['trucks_db'] = edited_df
+            st.success("✅ บันทึกข้อมูลและส่งรายงานอัปเดตระบบเรียบร้อยแล้ว!")
+            st.rerun()
+            
+    with tab2:
+        render_thai_map(df)
