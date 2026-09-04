@@ -190,3 +190,4 @@ else:
             
     with tab2:
         render_thai_map(df)
+        
