@@ -5,7 +5,7 @@ from datetime import datetime
 import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
-# 1. การตั้งค่าระบบและ Database
+# 1. การตั้งค่าระบบและ SQLite Database
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="TruckMaster Fleet Management", page_icon="🚛", layout="wide")
 DB_FILE = "truck_fleet.db"
@@ -14,7 +14,17 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # สร้างตารางยานพาหนะ
+    # 1. ตารางผู้ใช้งาน (Users)
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            username TEXT PRIMARY KEY,
+            password TEXT,
+            role TEXT,
+            fullname TEXT
+        )
+    ''')
+    
+    # 2. ตารางยานพาหนะ (Vehicles)
     c.execute('''
         CREATE TABLE IF NOT EXISTS vehicles (
             plate_number TEXT PRIMARY KEY,
@@ -30,7 +40,7 @@ def init_db():
         )
     ''')
     
-    # ระบบ Auto-Migration ป้องกันปัญหาโครงสร้างตารางเดิมไม่ตรง
+    # Auto-Migration คอลัมน์
     c.execute("PRAGMA table_info(vehicles)")
     cols = [col[1] for col in c.fetchall()]
     if 'gps_source' not in cols:
@@ -39,8 +49,8 @@ def init_db():
         c.execute("ALTER TABLE vehicles ADD COLUMN is_active INTEGER DEFAULT 1")
     if 'last_odometer' not in cols:
         c.execute("ALTER TABLE vehicles ADD COLUMN last_odometer REAL DEFAULT 0")
-    
-    # สร้างตารางประวัติงานขนส่ง
+
+    # 3. ตารางประวัติงานขนส่ง (Trips)
     c.execute('''
         CREATE TABLE IF NOT EXISTS trips (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,7 +66,7 @@ def init_db():
         )
     ''')
     
-    # สร้างตารางประวัติบำรุงรักษา
+    # 4. ตารางประวัติบำรุงรักษา (Maintenance)
     c.execute('''
         CREATE TABLE IF NOT EXISTS maintenance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +79,17 @@ def init_db():
         )
     ''')
     
-    # สร้างข้อมูลเริ่มต้นถ้ายังไม่มี
+    # เพิ่มผู้ใช้เริ่มต้น (ถ้ายังไม่มี)
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone()[0] == 0:
+        c.execute("""
+            INSERT INTO users VALUES 
+            ('owner', 'owner123', 'เจ้าของธุรกิจ (Owner)', 'ผู้บริหาร / เจ้าของกิจการ'),
+            ('account', 'acc123', 'ฝ่ายบัญชี (Accounting)', 'เจ้าหน้าที่ฝ่ายบัญชีและการเงิน'),
+            ('driver', 'driver123', 'พนักงานขับรถ (Driver)', 'พนักงานขับรถขนส่ง')
+        """)
+
+    # เพิ่มข้อมูลรถตัวอย่างเริ่มต้น (ถ้ายังไม่มี)
     c.execute("SELECT COUNT(*) FROM vehicles")
     if c.fetchone()[0] == 0:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -80,7 +100,6 @@ def init_db():
             ('70-5678 ชลบุรี', 'เทรลเลอร์ 18 ล้อ', 'วิชัย สายลุย', 'พร้อมใช้งาน', 89300.0, 13.3611, 100.9847, 'GPS มือถือ', ?, 1),
             ('70-9999 ระยอง', '6 ล้อตู้ทึบ', 'อนุสรณ์ มุ่งมั่น', 'เข้าศูนย์บริการ', 210500.0, 12.6814, 101.2816, 'GPS มือถือ', ?, 1)
         """, (now_str, now_str, now_str))
-        
         c.execute("""
             INSERT INTO trips (plate_number, driver_name, origin, destination, trip_status, income, fuel_cost, distance_km, created_at)
             VALUES 
@@ -114,14 +133,66 @@ def update_vehicle_gps(plate, lat, lon, source="GPS มือถือ"):
     """, (lat, lon, source, now, plate), fetch=False)
 
 # -----------------------------------------------------------------------------
-# 2. เมนู Sidebar
+# 2. ระบบตรวจสอบสิทธิ์เข้าสู่ระบบ (Authentication & Session State)
 # -----------------------------------------------------------------------------
-st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2554/2554978.png", width=80)
-st.sidebar.title("🚚 TruckMaster Fleet")
-user_role = st.sidebar.selectbox("เข้าสู่ระบบในฐานะ:", ["เจ้าของธุรกิจ (Owner)", "ฝ่ายบัญชี (Accounting)", "พนักงานขับรถ (Driver)"])
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+    st.session_state['user_role'] = None
+    st.session_state['username'] = None
+    st.session_state['fullname'] = None
+
+if not st.session_state['logged_in']:
+    st.markdown("<h2 style='text-align: center;'>🚛 ระบบบริหารจัดการขนส่งครบวงจร (TruckMaster)</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>กรุณาเข้าสู่ระบบเพื่อใช้งานตามสิทธิ์ของท่าน</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        with st.form("login_form"):
+            st.subheader("🔐 เข้าสู่ระบบ")
+            u_input = st.text_input("ชื่อผู้ใช้ (Username):")
+            p_input = st.text_input("รหัสผ่าน (Password):", type="password")
+            login_btn = st.form_submit_button("เข้าสู่ระบบ", use_container_width=True)
+            
+            if login_btn:
+                user_record = run_query("SELECT * FROM users WHERE username = ? AND password = ?", (u_input, p_input))
+                if not user_record.empty:
+                    st.session_state['logged_in'] = True
+                    st.session_state['username'] = user_record.iloc[0]['username']
+                    st.session_state['user_role'] = user_record.iloc[0]['role']
+                    st.session_state['fullname'] = user_record.iloc[0]['fullname']
+                    st.success("เข้าสู่ระบบสำเร็จ!")
+                    st.rerun()
+                else:
+                    st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
+                    
+        st.divider()
+        with st.expander("📌 ข้อมูลบัญชีผู้ใช้เริ่มต้น (สำหรับทดสอบ)"):
+            st.markdown("""
+            * **เจ้าของธุรกิจ:** User = `owner` | Pass = `owner123`
+            * **ฝ่ายบัญชี:** User = `account` | Pass = `acc123`
+            * **คนขับรถ:** User = `driver` | Pass = `driver123`
+            """)
+    st.stop()
 
 # -----------------------------------------------------------------------------
-# 3. มุมมอง: พนักงานขับรถ (Driver)
+# 3. เมนูด้านข้าง (Sidebar เมื่อ Login แล้ว)
+# -----------------------------------------------------------------------------
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2554/2554978.png", width=80)
+st.sidebar.title("🚚 TruckMaster")
+st.sidebar.markdown(f"**ผู้ใช้งาน:** {st.session_state['fullname']}")
+st.sidebar.markdown(f"**ตำแหน่ง/สิทธิ์:** `{st.session_state['user_role']}`")
+
+if st.sidebar.button("🚪 ออกจากระบบ (Logout)"):
+    st.session_state['logged_in'] = False
+    st.session_state['user_role'] = None
+    st.session_state['username'] = None
+    st.session_state['fullname'] = None
+    st.rerun()
+
+user_role = st.session_state['user_role']
+
+# -----------------------------------------------------------------------------
+# 4. มุมมอง: พนักงานขับรถ (Driver)
 # -----------------------------------------------------------------------------
 if user_role == "พนักงานขับรถ (Driver)":
     st.header("📱 พอร์ทัลพนักงานขับรถ (Driver Portal)")
@@ -130,7 +201,6 @@ if user_role == "พนักงานขับรถ (Driver)":
     vehicles_data = run_query("SELECT plate_number FROM vehicles WHERE is_active = 1")
     vehicles_list = vehicles_data['plate_number'].tolist() if not vehicles_data.empty else []
 
-    # Tab 1: เช็กอิน GPS จากมือถือ
     with driver_tabs[0]:
         st.subheader("📡 เช็กอินพิกัดตำแหน่งจากสมาร์ตโฟน")
         if vehicles_list:
@@ -178,9 +248,8 @@ if user_role == "พนักงานขับรถ (Driver)":
                 st.success(f"อัปเดตตำแหน่งของรถ {my_truck} สำเร็จแล้ว!")
                 st.rerun()
         else:
-            st.warning("ยังไม่มีรายการรถในระบบ กรุณาเพิ่มรถในหน้าเจ้าของธุรกิจก่อน")
+            st.warning("ยังไม่มีรายการรถในระบบ")
 
-    # Tab 2: แผนที่กองรถ
     with driver_tabs[1]:
         st.subheader("พิกัดและสถานะรถทั้งหมดในบริษัท")
         vehicles_df = run_query("SELECT plate_number, truck_type, driver_name, status, lat, lon, gps_source, last_updated FROM vehicles WHERE is_active = 1")
@@ -198,7 +267,6 @@ if user_role == "พนักงานขับรถ (Driver)":
             })
             st.dataframe(table_driver, use_container_width=True, hide_index=True)
 
-    # Tab 3: ขนส่ง
     with driver_tabs[2]:
         st.subheader("บันทึกข้อมูลขั้นตอนการขนส่งและเลขไมล์")
         if vehicles_list:
@@ -206,7 +274,7 @@ if user_role == "พนักงานขับรถ (Driver)":
                 c1, c2 = st.columns(2)
                 with c1:
                     selected_truck = st.selectbox("ทะเบียนรถที่ขับ:", vehicles_list)
-                    driver_name = st.text_input("ชื่อพนักงานขับรถ:")
+                    driver_name = st.text_input("ชื่อพนักงานขับรถ:", value=st.session_state['fullname'])
                     origin = st.text_input("สถานที่ต้นทาง:")
                     dest = st.text_input("สถานที่ปลายทาง:")
                 with c2:
@@ -230,19 +298,16 @@ if user_role == "พนักงานขับรถ (Driver)":
                         st.success("บันทึกข้อมูลเที่ยววิ่งสำเร็จ!")
                     else:
                         st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
-        else:
-            st.warning("ไม่มีรายการรถที่พร้อมใช้งาน")
 
-    # Tab 4: ซ่อมบำรุง
     with driver_tabs[3]:
         st.subheader("บันทึกประวัติการบำรุงรักษา / ซ่อมแซม")
         if vehicles_list:
             with st.form("driver_maint_form"):
                 m_truck = st.selectbox("ทะเบียนรถ:", vehicles_list, key="m_truck")
-                m_item = st.text_input("รายการบำรุงรักษา/เปลี่ยนถ่ายน้ำมัน/ซ่อม:")
+                m_item = st.text_input("รายการบำรุงรักษา/ซ่อม:")
                 m_cost = st.number_input("ค่าใช้จ่าย (บาท):", min_value=0.0)
                 m_odo = st.number_input("เลขไมล์ขณะเข้าซ่อม (กม.):", min_value=0.0)
-                m_driver = st.text_input("ผู้แจ้งรายการ:", key="m_driver")
+                m_driver = st.text_input("ผู้แจ้งรายการ:", value=st.session_state['fullname'])
                 submit_maint = st.form_submit_button("🔧 บันทึกประวัติการซ่อม")
                 if submit_maint:
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -251,10 +316,7 @@ if user_role == "พนักงานขับรถ (Driver)":
                         VALUES (?, ?, ?, ?, ?, ?)
                     """, (m_truck, m_item, m_cost, m_odo, now, m_driver), fetch=False)
                     st.success("บันทึกประวัติการบำรุงรักษาเรียบร้อย!")
-        else:
-            st.warning("ไม่มีรายการรถในระบบ")
 
-    # Tab 5: ประวัติ
     with driver_tabs[4]:
         st.subheader("ประวัติงานขนส่งย้อนหลังทั้งหมด")
         my_trips = run_query("SELECT plate_number, driver_name, origin, destination, trip_status, fuel_cost, distance_km, created_at FROM trips ORDER BY id DESC")
@@ -274,7 +336,7 @@ if user_role == "พนักงานขับรถ (Driver)":
             st.info("ยังไม่มีประวัติการวิ่งงาน")
 
 # -----------------------------------------------------------------------------
-# 4. มุมมอง: ฝ่ายบัญชี (Accounting) - Read Only
+# 5. มุมมอง: ฝ่ายบัญชี (Accounting) - Read Only
 # -----------------------------------------------------------------------------
 elif user_role == "ฝ่ายบัญชี (Accounting)":
     st.header("📊 รายงานบัญชีและการเงินกองรถ (Read-Only)")
@@ -329,11 +391,11 @@ elif user_role == "ฝ่ายบัญชี (Accounting)":
         st.info("ยังไม่มีรายการซ่อมบำรุง")
 
 # -----------------------------------------------------------------------------
-# 5. มุมมอง: เจ้าของธุรกิจ (Owner) - Full Control
+# 6. มุมมอง: เจ้าของธุรกิจ (Owner) - Full Control
 # -----------------------------------------------------------------------------
 elif user_role == "เจ้าของธุรกิจ (Owner)":
     st.header("👑 แดชบอร์ดผู้บริหาร (Owner Full Access)")
-    owner_tabs = st.tabs(["📈 ทะเบียนและพิกัดกองรถ", "💵 บันทึกรายได้งานขนส่ง", "⚙️ จัดการสถานะรถ"])
+    owner_tabs = st.tabs(["📈 ทะเบียนและพิกัดกองรถ", "💵 บันทึกรายได้งานขนส่ง", "👥 จัดการผู้ใช้งาน", "⚙️ จัดการสถานะรถ"])
     
     with owner_tabs[0]:
         st.subheader("ข้อมูลกองรถและตำแหน่งล่าสุด")
@@ -401,8 +463,24 @@ elif user_role == "เจ้าของธุรกิจ (Owner)":
             st.info("ยังไม่มีเที่ยววิ่งงานในระบบ")
 
     with owner_tabs[2]:
+        st.subheader("👥 จัดการบัญชีผู้ใช้งาน (Users)")
+        users_df = run_query("SELECT username, role, fullname FROM users")
+        st.dataframe(users_df.rename(columns={"username": "ชื่อผู้ใช้", "role": "สิทธิ์", "fullname": "ชื่อ-นามสกุล"}), use_container_width=True, hide_index=True)
+        
+        with st.expander("➕ เพิ่มผู้ใช้งานใหม่"):
+            with st.form("add_user_form"):
+                n_user = st.text_input("Username:")
+                n_pass = st.text_input("Password:", type="password")
+                n_name = st.text_input("ชื่อ-นามสกุล:")
+                n_role = st.selectbox("สิทธิ์การใช้งาน:", ["พนักงานขับรถ (Driver)", "ฝ่ายบัญชี (Accounting)", "เจ้าของธุรกิจ (Owner)"])
+                if st.form_submit_button("สร้างบัญชีผู้ใช้"):
+                    if n_user and n_pass:
+                        run_query("INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?)", (n_user, n_pass, n_role, n_name), fetch=False)
+                        st.success(f"เพิ่มผู้ใช้ {n_user} สำเร็จ!")
+                        st.rerun()
+
+    with owner_tabs[3]:
         st.subheader("ระงับการใช้งานรถ (ไม่ลบประวัติย้อนหลัง)")
-        st.caption("ระบบจะซ่อนรถออกจากหน้าแผนที่ปกติ แต่ประวัติการวิ่งงานและบัญชีในอดีตจะยังคงอยู่ครบถ้วน")
         trucks_res = run_query("SELECT plate_number FROM vehicles WHERE is_active = 1")
         trucks = trucks_res['plate_number'].tolist() if not trucks_res.empty else []
         
@@ -410,7 +488,7 @@ elif user_role == "เจ้าของธุรกิจ (Owner)":
             truck_to_deactivate = st.selectbox("เลือกรถที่ต้องการปลดระวาง/ระงับใช้งาน:", trucks)
             if st.button("🚫 ระงับการใช้งานรถคันนี้"):
                 run_query("UPDATE vehicles SET is_active = 0, status = 'ปลดระวาง/ระงับใช้งาน' WHERE plate_number = ?", (truck_to_deactivate,), fetch=False)
-                st.warning(f"ระงับรถทะเบียน {truck_to_deactivate} เรียบร้อยแล้ว (ข้อมูลประวัติเดิมยังคงอยู่ครบถ้วน)")
+                st.warning(f"ระงับรถทะเบียน {truck_to_deactivate} เรียบร้อยแล้ว")
                 st.rerun()
         else:
             st.info("ไม่มีรถที่เปิดใช้งานอยู่ในขณะนี้")
