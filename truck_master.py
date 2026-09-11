@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
+import random
 from datetime import datetime
-from streamlit_geolocation import streamlit_geolocation
+import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
 # 1. การตั้งค่าระบบและ SQLite Database
@@ -56,9 +57,9 @@ def init_db():
     if c.fetchone()[0] == 0:
         c.execute("""
             INSERT INTO vehicles VALUES 
-            ('70-1234 กทม', '10 ล้อพ่วง', 'สมชาย ใจกล้า', 'กำลังวิ่งงาน', 125400.0, 13.7563, 100.5018, 'Mobile GPS', datetime('now', 'localtime'), 1),
-            ('70-5678 ชลบุรี', 'เทรลเลอร์ 18 ล้อ', 'วิชัย สายลุย', 'พร้อมใช้งาน', 89300.0, 13.3611, 100.9847, 'Mobile GPS', datetime('now', 'localtime'), 1),
-            ('70-9999 ระยอง', '6 ล้อตู้ทึบ', 'อนุสรณ์ มุ่งมั่น', 'เข้าศูนย์บริการ', 210500.0, 12.6814, 101.2816, 'Mobile GPS', datetime('now', 'localtime'), 1)
+            ('70-1234 กทม', '10 ล้อพ่วง', 'สมชาย ใจกล้า', 'กำลังวิ่งงาน', 125400.0, 13.7563, 100.5018, 'GPS มือถือ', datetime('now', 'localtime'), 1),
+            ('70-5678 ชลบุรี', 'เทรลเลอร์ 18 ล้อ', 'วิชัย สายลุย', 'พร้อมใช้งาน', 89300.0, 13.3611, 100.9847, 'GPS มือถือ', datetime('now', 'localtime'), 1),
+            ('70-9999 ระยอง', '6 ล้อตู้ทึบ', 'อนุสรณ์ มุ่งมั่น', 'เข้าศูนย์บริการ', 210500.0, 12.6814, 101.2816, 'GPS มือถือ', datetime('now', 'localtime'), 1)
         """)
         c.execute("""
             INSERT INTO trips (plate_number, driver_name, origin, destination, trip_status, income, fuel_cost, distance_km, created_at)
@@ -83,7 +84,7 @@ def run_query(query, params=(), fetch=True):
         conn.commit()
         conn.close()
 
-def update_vehicle_gps(plate, lat, lon, source="มือถือพนักงานขับรถ"):
+def update_vehicle_gps(plate, lat, lon, source="GPS มือถือ"):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     run_query("""
         UPDATE vehicles 
@@ -103,25 +104,59 @@ user_role = st.sidebar.selectbox("เข้าสู่ระบบในฐา�
 # -----------------------------------------------------------------------------
 if user_role == "พนักงานขับรถ (Driver)":
     st.header("📱 พอร์ทัลพนักงานขับรถ (Driver Portal)")
-    driver_tabs = st.tabs(["📍 เช็กอิน GPS จากมือถือ", "🗺️ แผนที่กองรถทั้งหมด", "📝 บันทึกเที่ยววิ่ง/ไมล์", "🔧 แจ้งซ่อมบำรุง", "📜 ประวัติย้อนหลัง"])
+    driver_tabs = st.tabs(["📍 เช็กอินพิกัด GPS", "🗺️ แผนที่กองรถทั้งหมด", "📝 บันทึกเที่ยววิ่ง/ไมล์", "🔧 แจ้งซ่อมบำรุง", "📜 ประวัติย้อนหลัง"])
     vehicles_list = run_query("SELECT plate_number FROM vehicles WHERE is_active = 1")['plate_number'].tolist()
 
+    # Tab 1: GPS Check-in
     with driver_tabs[0]:
-        st.subheader("📡 เช็กอินพิกัดสดผ่าน GPS สมาร์ตโฟนของคุณ")
-        st.info("💡 กดปุ่มด้านล่างเพื่อแชร์พิกัด GPS ปัจจุบันจากมือถือเข้าสู่แผนที่ส่วนกลางของบริษัท")
+        st.subheader("📡 เช็กอินพิกัดตำแหน่งจากสมาร์ตโฟน")
         my_truck = st.selectbox("เลือกรถที่คุณกำลังขับอยู่:", vehicles_list, key="my_active_truck")
-        st.write("**กดปุ่มเพื่อระบุตำแหน่งของคุณ:**")
-        location = streamlit_geolocation()
         
-        if location and location.get('latitude') is not None and location.get('longitude') is not None:
-            user_lat = location['latitude']
-            user_lon = location['longitude']
-            st.success(f"📍 ตรวจพบพิกัดของคุณ: ละติจูด {user_lat:.5f}, ลองจิจูด {user_lon:.5f}")
-            if st.button("🚀 ยืนยันการอัปเดตตำแหน่งรถขึ้นระบบแผนที่"):
-                update_vehicle_gps(my_truck, user_lat, user_lon, source="GPS มือถือ")
-                st.success(f"อัปเดตตำแหน่งของรถ {my_truck} สำเร็จแล้ว!")
-                st.rerun()
+        # HTML5 Geolocation Component
+        geo_html = """
+        <div style="background:#f0f2f6; padding:15px; border-radius:10px; text-align:center;">
+            <p style="margin:0 0 10px 0; font-weight:bold; color:#333;">กดปุ่มด้านล่างเพื่อดึงพิกัด GPS จริงจากมือถือของคุณ</p>
+            <button onclick="getLocation()" style="background:#ff4b4b; color:white; border:none; padding:10px 20px; font-size:16px; border-radius:8px; cursor:pointer;">
+                🛰️ ดึงพิกัดจากมือถือ
+            </button>
+            <p id="geo_res" style="margin-top:10px; font-weight:bold; color:#1f77b4;"></p>
+        </div>
+        <script>
+        function getLocation() {
+            var res = document.getElementById("geo_res");
+            if (navigator.geolocation) {
+                res.innerHTML = "กำลังค้นหาสัญญาณ GPS...";
+                navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                        res.innerHTML = "📍 พิกัดของคุณ:<br>Lat: " + position.coords.latitude.toFixed(5) + " | Lon: " + position.coords.longitude.toFixed(5);
+                    },
+                    function(error) {
+                        res.innerHTML = "❌ ไม่สามารถดึง GPS ได้: " + error.message;
+                    },
+                    {enableHighAccuracy: true}
+                );
+            } else {
+                res.innerHTML = "เบราว์เซอร์นี้ไม่รองรับ GPS";
+            }
+        }
+        </script>
+        """
+        components.html(geo_html, height=140)
+        
+        # ช่องกรอก/ยืนยันเพื่ออัปเดตตำแหน่ง
+        st.markdown("**กรอกหรือปรับพิกัดเพื่ออัปเดตเข้าสู่ระบบกลาง:**")
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            in_lat = st.number_input("ละติจูด (Lat):", value=13.7563, format="%.5f")
+        with col_g2:
+            in_lon = st.number_input("ลองจิจูด (Lon):", value=100.5018, format="%.5f")
+            
+        if st.button("🚀 ยืนยันการอัปเดตตำแหน่งรถขึ้นแผนที่"):
+            update_vehicle_gps(my_truck, in_lat, in_lon, source="GPS มือถือ")
+            st.success(f"อัปเดตตำแหน่งของรถ {my_truck} สำเร็จแล้ว!")
+            st.rerun()
 
+    # Tab 2: แผนที่กองรถ
     with driver_tabs[1]:
         st.subheader("พิกัดและสถานะรถทั้งหมดในบริษัท")
         vehicles_df = run_query("SELECT plate_number, truck_type, driver_name, status, lat, lon, gps_source, last_updated FROM vehicles WHERE is_active = 1")
@@ -139,6 +174,7 @@ if user_role == "พนักงานขับรถ (Driver)":
         })
         st.dataframe(table_driver, use_container_width=True, hide_index=True)
 
+    # Tab 3: ขนส่ง
     with driver_tabs[2]:
         st.subheader("บันทึกข้อมูลขั้นตอนการขนส่งและเลขไมล์")
         with st.form("driver_job_form"):
@@ -170,6 +206,7 @@ if user_role == "พนักงานขับรถ (Driver)":
                 else:
                     st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
 
+    # Tab 4: ซ่อมบำรุง
     with driver_tabs[3]:
         st.subheader("บันทึกประวัติการบำรุงรักษา / ซ่อมแซม")
         with st.form("driver_maint_form"):
@@ -187,6 +224,7 @@ if user_role == "พนักงานขับรถ (Driver)":
                 """, (m_truck, m_item, m_cost, m_odo, now, m_driver), fetch=False)
                 st.success("บันทึกประวัติการบำรุงรักษาเรียบร้อย!")
 
+    # Tab 5: ประวัติ
     with driver_tabs[4]:
         st.subheader("ประวัติงานขนส่งย้อนหลังทั้งหมด")
         my_trips = run_query("SELECT plate_number, driver_name, origin, destination, trip_status, fuel_cost, distance_km, created_at FROM trips ORDER BY id DESC")
