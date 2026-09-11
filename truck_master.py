@@ -1,193 +1,291 @@
 import streamlit as st
 import pandas as pd
-import pydeck as pdk
-import time
+import sqlite3
+import requests
+import random
+from datetime import datetime
 
-# ตั้งค่าหน้าตาแอปและธีมให้กว้างเต็มจอ
-st.set_page_config(page_title="ระบบขนส่งเรียลไทม์ TruckMaster Pro", page_icon="🚚", layout="wide")
+# -----------------------------------------------------------------------------
+# 1. การตั้งค่าระบบและ Database
+# -----------------------------------------------------------------------------
+st.set_page_config(page_title="TruckMaster Pro + Live GPS", page_icon="🚛", layout="wide")
+DB_FILE = "truck_fleet.db"
 
-# ==========================================
-# ⏱️ ระบบรีเฟรชหน้าจออัตโนมัติแบบเรียลไทม์ (ทุกๆ 10 วินาที)
-# ==========================================
-if 'last_refresh' not in st.session_state:
-    st.session_state['last_refresh'] = time.time()
-
-current_time = time.time()
-if current_time - st.session_state['last_refresh'] > 10:
-    st.session_state['last_refresh'] = current_time
-    st.rerun()
-
-# ==========================================
-# 💾 ฐานข้อมูลหลักแชร์ร่วมกันในระบบ (ข้อมูลโปร่งใสทุกฝ่าย)
-# ==========================================
-if 'trucks_db' not in st.session_state:
-    st.session_state['trucks_db'] = pd.DataFrame([
-        {
-            "ทะเบียนรถ": "TRK-01", "ชื่อคนขับ": "สมชาย ใจดี", "สิ่งที่บรรทุก": "ข้าวสาร 20 ตัน", 
-            "จังหวัดรับสินค้า": "กรุงเทพมหานคร", "จังหวัดส่งสินค้า": "เชียงใหม่", 
-            "เวลาคาดว่าจะถึง (ETA)": "14:30", "สถานะ": "กำลังวิ่ง", 
-            "ค่าน้ำมัน (บาท)": 2500, "กำไรต่อเที่ยว (บาท)": 4500, 
-            "lat": 13.7563, "lon": 100.5018, "dest_lat": 18.7883, "dest_lon": 98.9853
-        },
-        {
-            "ทะเบียนรถ": "TRK-02", "ชื่อคนขับ": "วิชัย รักดี", "สิ่งที่บรรทุก": "เหล็กเส้น 15 ตัน", 
-            "จังหวัดรับสินค้า": "นครราชสีมา", "จังหวัดส่งสินค้า": "ขอนแก่น", 
-            "เวลาคาดว่าจะถึง (ETA)": "18:00", "สถานะ": "จอดพัก", 
-            "ค่าน้ำมัน (บาท)": 3000, "กำไรต่อเที่ยว (บาท)": 6200, 
-            "lat": 14.9738, "lon": 102.0836, "dest_lat": 16.4322, "dest_lon": 102.8236
-        },
-        {
-            "ทะเบียนรถ": "TRK-03", "ชื่อคนขับ": "อนันต์ ยอดเยี่ยม", "สิ่งที่บรรทุก": "อาหารแช่แข็ง", 
-            "จังหวัดรับสินค้า": "ชลบุรี", "จังหวัดส่งสินค้า": "ระยอง", 
-            "เวลาคาดว่าจะถึง (ETA)": "ถึงแล้ว", "สถานะ": "ส่งงานเสร็จแล้ว", 
-            "ค่าน้ำมัน (บาท)": 2200, "กำไรต่อเที่ยว (บาท)": 3800, 
-            "lat": 12.9236, "lon": 100.8824, "dest_lat": 12.6815, "dest_lon": 101.2813
-        }
-    ])
-
-# ==========================================
-# 🔐 ระบบจัดการล็อกอิน (Login System)
-# ==========================================
-if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-if 'user_role' not in st.session_state:
-    st.session_state['user_role'] = None
-
-if not st.session_state['logged_in']:
-    st.title("🔐 เข้าสู่ระบบ TruckMaster Pro")
-    username = st.text_input("ชื่อผู้ใช้งาน (Username)")
-    password = st.text_input("รหัสผ่าน (Password)", type="password")
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS vehicles (
+            plate_number TEXT PRIMARY KEY,
+            truck_type TEXT,
+            driver_name TEXT,
+            status TEXT,
+            last_odometer REAL,
+            lat REAL,
+            lon REAL,
+            gps_device_id TEXT,
+            last_updated TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS trips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plate_number TEXT,
+            driver_name TEXT,
+            origin TEXT,
+            destination TEXT,
+            trip_status TEXT,
+            income REAL,
+            fuel_cost REAL,
+            distance_km REAL,
+            created_at TEXT
+        )
+    ''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS maintenance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plate_number TEXT,
+            item TEXT,
+            cost REAL,
+            odometer REAL,
+            log_date TEXT,
+            logged_by TEXT
+        )
+    ''')
     
-    if st.button("เข้าสู่ระบบ", use_container_width=True):
-        if username == "admin" and password == "boss1234":
-            st.session_state['logged_in'] = True
-            st.session_state['user_role'] = "เจ้าของธุรกิจ (Owner)"
-            st.rerun()
-        elif username == "account" and password == "money1234":
-            st.session_state['logged_in'] = True
-            st.session_state['user_role'] = "พนักงานบัญชี (Accountant)"
-            st.rerun()
-        elif username == "driver" and password == "driver1234":
-            st.session_state['logged_in'] = True
-            st.session_state['user_role'] = "พนักงานขับรถ (Driver)"
-            st.rerun()
-        else:
-            st.error("❌ ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง")
-else:
-    df = st.session_state['trucks_db']
+    # Mock Data เริ่มต้น
+    c.execute("SELECT COUNT(*) FROM vehicles")
+    if c.fetchone()[0] == 0:
+        c.execute("""
+            INSERT INTO vehicles VALUES 
+            ('70-1234 กทม', '10 ล้อพ่วง', 'สมชาย ใจกล้า', 'กำลังวิ่งงาน', 125400.0, 13.7563, 100.5018, 'GPS-TK001', datetime('now')),
+            ('70-5678 ชลบุรี', 'เทรลเลอร์ 18 ล้อ', 'วิชัย สายลุย', 'พร้อมใช้งาน', 89300.0, 13.3611, 100.9847, 'GPS-TK002', datetime('now')),
+            ('70-9999 ระยอง', '6 ล้อตู้ทึบ', 'อนุสรณ์ มุ่งมั่น', 'เข้าศูนย์บริการ', 210500.0, 12.6814, 101.2816, 'GPS-TK003', datetime('now'))
+        """)
+        c.execute("""
+            INSERT INTO trips (plate_number, driver_name, origin, destination, trip_status, income, fuel_cost, distance_km, created_at)
+            VALUES 
+            ('70-1234 กทม', 'สมชาย ใจกล้า', 'กรุงเทพฯ', 'ขอนแก่น', 'กำลังขนส่ง', 18500, 6200, 450, datetime('now')),
+            ('70-5678 ชลบุรี', 'วิชัย สายลุย', 'แหลมฉบัง', 'อยุธยา', 'เสร็จสิ้น', 12000, 3800, 180, datetime('now'))
+        """)
+    conn.commit()
+    conn.close()
 
-    # ==========================================
-    # ⚙️ เมนูแถบด้านข้าง (Sidebar)
-    # ==========================================
-    with st.sidebar:
-        st.header("⚙️ ศูนย์ตั้งค่าระบบ")
-        st.write(f"👤 ผู้ใช้ปัจจุบัน: **{st.session_state['user_role']}**")
-        st.success("🌐 แชร์ระบบข้อมูลรวม: ทุกฝ่ายเห็นครบและแก้ไขได้เหมือนกัน")
-        
-        if st.button("📴 ออกจากระบบ", use_container_width=True):
-            st.session_state['logged_in'] = False
-            st.session_state['user_role'] = None
-            st.rerun()
+init_db()
 
-    # ==========================================
-    # 🗺️ ฟังก์ชันแผนที่รวมเรียลไทม์ (Shared Map Component)
-    # ==========================================
-    def render_thai_map(data_df):
-        st.subheader("🗺️ แผนที่พิกัดขนส่งและเส้นทางวิ่งของทีมรถบรรทุกทั้งหมด")
-        view_state = pdk.ViewState(latitude=14.5000, longitude=100.5018, zoom=5.5, pitch=20)
+def run_query(query, params=(), fetch=True):
+    conn = sqlite3.connect(DB_FILE)
+    if fetch:
+        df = pd.read_sql_query(query, conn, params=params)
+        conn.close()
+        return df
+    else:
+        c = conn.cursor()
+        c.execute(query, params)
+        conn.commit()
+        conn.close()
+
+# -----------------------------------------------------------------------------
+# 2. ฟังก์ชันเชื่อมต่อ GPS API
+# -----------------------------------------------------------------------------
+def fetch_live_gps_from_api(api_endpoint, api_token=None):
+    """ฟังก์ชันเชื่อมต่อดึงพิกัดจาก GPS Gateway/Traccar API"""
+    try:
+        headers = {"Authorization": f"Bearer {api_token}"} if api_token else {}
+        response = requests.get(api_endpoint, headers=headers, timeout=5)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        return None
+    return None
+
+def update_vehicle_gps(plate, lat, lon):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    run_query("""
+        UPDATE vehicles 
+        SET lat = ?, lon = ?, last_updated = ? 
+        WHERE plate_number = ?
+    """, (lat, lon, now, plate), fetch=False)
+
+# -----------------------------------------------------------------------------
+# 3. เมนูด้านข้างและเลือก Role
+# -----------------------------------------------------------------------------
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2554/2554978.png", width=80)
+st.sidebar.title("🚚 TruckMaster Fleet")
+user_role = st.sidebar.selectbox("เข้าสู่ระบบในฐานะ:", ["เจ้าของธุรกิจ (Owner)", "ฝ่ายบัญชี (Accounting)", "พนักงานขับรถ (Driver)"])
+
+# -----------------------------------------------------------------------------
+# 4. มุมมอง: พนักงานขับรถ (Driver)
+# -----------------------------------------------------------------------------
+if user_role == "พนักงานขับรถ (Driver)":
+    st.header("📱 พอร์ทัลพนักงานขับรถ & ติดตามพิกัดสด")
+    driver_tabs = st.tabs(["🗺️ แผนที่พิกัดสดของกองรถ", "📝 อัปเดตงานขนส่ง/ไมล์", "🔧 แจ้งซ่อมบำรุง"])
+    
+    # Tab 1: แผนที่แบบ Real-Time
+    with driver_tabs[0]:
+        col_map_h, col_btn = st.columns([3, 1])
+        with col_map_h:
+            st.subheader("📡 พิกัด Real-time ของรถทุกคันในบริษัท")
+        with col_btn:
+            if st.button("🔄 ดึงสัญญาณ GPS ล่าสุด"):
+                # จำลองการขยับพิกัดเล็กน้อยเมื่อกด Refresh
+                vehicles = run_query("SELECT plate_number, lat, lon FROM vehicles")
+                for _, row in vehicles.iterrows():
+                    new_lat = row['lat'] + random.uniform(-0.005, 0.005)
+                    new_lon = row['lon'] + random.uniform(-0.005, 0.005)
+                    update_vehicle_gps(row['plate_number'], new_lat, new_lon)
+                st.success("อัปเดตตำแหน่ง GPS ล่าสุดเรียบร้อย!")
+                st.rerun()
+
+        vehicles_df = run_query("SELECT plate_number, truck_type, driver_name, status, lat, lon, last_updated FROM vehicles")
+        if not vehicles_df.empty:
+            st.map(vehicles_df, latitude="lat", longitude="lon", size=20)
         
-        map_df = data_df.copy()
+        st.dataframe(vehicles_df[["plate_number", "driver_name", "status", "lat", "lon", "last_updated"]], use_container_width=True)
+
+    # Tab 2: บันทึกข้อมูลงานขนส่ง
+    with driver_tabs[1]:
+        st.subheader("บันทึกข้อมูลเที่ยววิ่งและเลขไมล์")
+        vehicles_list = run_query("SELECT plate_number FROM vehicles")['plate_number'].tolist()
         
-        def assign_color(status):
-            if status == "กำลังวิ่ง": 
-                return [46, 204, 113, 255]   # สีเขียวสด
-            elif status == "จอดพัก": 
-                return [241, 196, 15, 255]  # สีเหลือง
-            else: 
-                return [231, 76, 60, 255]    # สีแดง
+        with st.form("driver_job_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                selected_truck = st.selectbox("ทะเบียนรถที่ขับ:", vehicles_list)
+                driver_name = st.text_input("ชื่อคนขับ:")
+                origin = st.text_input("ต้นทาง:")
+                dest = st.text_input("ปลายทาง:")
+            with c2:
+                step_status = st.selectbox("ขั้นตอนขนส่ง:", ["เริ่มออกเดินทาง", "ถึงจุดรับสินค้า", "กำลังเดินทางไปปลายทาง", "ส่งมอบสินค้าเรียบร้อย"])
+                cur_km = st.number_input("เลขไมล์ปัจจุบัน (km):", min_value=0.0, step=10.0)
+                fuel_spent = st.number_input("ค่าน้ำมันรอบนี้ (บาท):", min_value=0.0, step=100.0)
+                distance = st.number_input("ระยะทาง (km):", min_value=0.0, step=1.0)
                 
-        map_df['color'] = map_df['สถานะ'].apply(assign_color)
-        
-        # ใส่ค่ารหัสสีฟ้าโปร่งแสงสากล [R, G, B, Alpha] ตรวจสอบไวยากรณ์เรียบร้อยแล้ว
-        route_layer = pdk.Layer(
-            "LineLayer", map_df,
-            get_source_position="[lon, lat]", 
-            get_target_position="[dest_lon, dest_lat]",
-            get_color=[0, 150, 255, 150], 
-            get_width=4, 
-            pickable=False
-        )
-        
-        truck_layer = pdk.Layer(
-            "ScatterplotLayer", map_df,
-            get_position="[lon, lat]", 
-            get_color="color",  
-            get_radius=22000, 
-            pickable=True, 
-            filled=True,
-        )
-        
-        r = pdk.Deck(
-            layers=[route_layer, truck_layer],
-            initial_view_state=view_state,
-            map_style="https://cartocdn.com", 
-            tooltip={
-                "html": """
-                <b>🚚 ทะเบียนรถ:</b> {ทะเบียนรถ} <br/>
-                <b>👤 พนักงานขับรถ:</b> {ชื่อคนขับ} <br/>
-                <b>🚦 Status:</b> {สถานะ} <br/>
-                <b>🛫 ต้นทาง (รับสินค้าจาก):</b> {จังหวัดรับสินค้า} <br/>
-                <b>🛬 ปลายทาง (ไปส่งจังหวัด):</b> {จังหวัดส่งสินค้า} <br/>
-                <b>📦 สินค้า:</b> {สิ่งที่บรรทุก} <br/>
-                <b>💵 ค่าน้ำมัน:</b> {ค่าน้ำมัน (บาท)} บาท <br/>
-                <b>💰 กำไรต่อเที่ยว:</b> {กำไรต่อเที่ยว (บาท)} บาท <br/>
-                <b>⏱️ เวลา ETA:</b> {เวลาคาดว่าจะถึง (ETA)}
-                """,
-                "style": {"backgroundColor": "#1a252f", "color": "white", "fontSize": "13px"}
-            }
-        )
-        st.pydeck_chart(r)
+            submit_trip = st.form_submit_button("💾 บันทึกขั้นตอนขนส่ง")
+            if submit_trip:
+                if driver_name and origin and dest:
+                    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    run_query("""
+                        INSERT INTO trips (plate_number, driver_name, origin, destination, trip_status, income, fuel_cost, distance_km, created_at)
+                        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+                    """, (selected_truck, driver_name, origin, dest, step_status, fuel_spent, distance, now), fetch=False)
+                    
+                    run_query("""
+                        UPDATE vehicles 
+                        SET last_odometer = ?, status = ?, last_updated = ? 
+                        WHERE plate_number = ?
+                    """, (cur_km, step_status, now, selected_truck), fetch=False)
+                    st.success("บันทึกข้อมูลและอัปเดตสถานะสำเร็จ!")
+                else:
+                    st.error("กรุณากรอกข้อมูลสำคัญให้ครบถ้วน")
 
-    # รูปแบบคอลัมน์ตารางระดับพรีเมียม (ทุกฝ่ายแก้ไขข้อมูลคอลัมน์เดียวกันได้ทั้งหมด)
-    base_column_config = {
-        "ทะเบียนรถ": st.column_config.TextColumn("🆔 ทะเบียนรถ", width="medium", required=True),
-        "ชื่อคนขับ": st.column_config.TextColumn("👤 ชื่อคนขับ", width="medium"),
-        "สิ่งที่บรรทุก": st.column_config.TextColumn("📦 สิ่งที่บรรทุก", width="medium"),
-        "จังหวัดรับสินค้า": st.column_config.TextColumn("🛫 รับสินค้าจาก", width="medium"),
-        "จังหวัดส่งสินค้า": st.column_config.TextColumn("🛬 ไปส่งจังหวัด", width="medium"),
-        "เวลาคาดว่าจะถึง (ETA)": st.column_config.TextColumn("⏱️ ETA", width="small"),
-        "สถานะ": st.column_config.SelectboxColumn("🚦 Status", options=["กำลังวิ่ง", "จอดพัก", "ส่งงานเสร็จแล้ว"], width="small"),
-        "ค่าน้ำมัน (บาท)": st.column_config.NumberColumn("💵 ค่าน้ำมัน", format="฿%d", width="small"),
-        "กำไรต่อเที่ยว (บาท)": st.column_config.NumberColumn("💰 กำไรต่อเที่ยว", format="฿%d", width="small"),
-        "lat": st.column_config.NumberColumn("🌐 ปัจจุบัน Lat", format="%.4f", width="small"),
-        "lon": st.column_config.NumberColumn("🌐 ปัจจุบัน Lon", format="%.4f", width="small"),
-        "dest_lat": st.column_config.NumberColumn("🏁 ปลายทาง Lat", format="%.4f", width="small"),
-        "dest_lon": st.column_config.NumberColumn("🏁 ปลายทาง Lon", format="%.4f", width="small"),
-    }
+    # Tab 3: แจ้งซ่อมบำรุง
+    with driver_tabs[2]:
+        st.subheader("บันทึกประวัติการบำรุงรักษา")
+        with st.form("driver_maint_form"):
+            m_truck = st.selectbox("ทะเบียนรถ:", vehicles_list, key="m_truck")
+            m_item = st.text_input("รายการซ่อม/เช็กระยะ:")
+            m_cost = st.number_input("ค่าใช้จ่าย (บาท):", min_value=0.0)
+            m_odo = st.number_input("เลขไมล์เข้าซ่อม:", min_value=0.0)
+            m_driver = st.text_input("ชื่อผู้แจ้ง:", key="m_driver")
+            submit_maint = st.form_submit_button("🔧 บันทึก")
+            if submit_maint:
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                run_query("""
+                    INSERT INTO maintenance (plate_number, item, cost, odometer, log_date, logged_by)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (m_truck, m_item, m_cost, m_odo, now, m_driver), fetch=False)
+                st.success("บันทึกข้อมูลเรียบร้อย!")
 
-    # ==========================================
-    # 🎛️ ส่วนแชร์หน้าจอสำหรับทุกสิทธิ์ (Owner, Accountant, Driver เห็นและทำได้เหมือนกันหมด 100%)
-    # ==========================================
-    st.title(f"🚚 ระบบบริหารจัดการขนส่งเรียลไทม์ (คุณเข้าใช้งานในสิทธิ์: {st.session_state['user_role']})")
-    tab1, tab2 = st.tabs(["📋 สรุปข้อมูลตารางรถทั้งหมด", "🗺️ แผนที่พิกัดและเส้นทางเรียลไทม์"])
+# -----------------------------------------------------------------------------
+# 5. มุมมอง: ฝ่ายบัญชี (Accounting) - Read Only
+# -----------------------------------------------------------------------------
+elif user_role == "ฝ่ายบัญชี (Accounting)":
+    st.header("📊 รายงานบัญชีและการเงินกองรถ (Read-Only)")
+    st.info("🔒 สิทธิ์ฝ่ายบัญชี: ดูสถิติและดึงข้อมูลรายงาน ไม่สามารถแก้ไขข้อมูลได้")
     
-    with tab1:
-        st.write("💡 คุณสามารถดับเบิลคลิกเพื่อพิมพ์แก้ไขรายละเอียดงาน ค่าน้ำมัน ผลกำไร หรือข้อมูลพิกัดในตารางได้อิสระ:")
+    trips_df = run_query("SELECT * FROM trips")
+    maint_df = run_query("SELECT * FROM maintenance")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    total_income = trips_df["income"].sum()
+    total_fuel = trips_df["fuel_cost"].sum()
+    total_maint = maint_df["cost"].sum()
+    net_profit = total_income - (total_fuel + total_maint)
+    
+    col1.metric("รายรับรวม", f"฿{total_income:,.2f}")
+    col2.metric("ค่าน้ำมันรวม", f"฿{total_fuel:,.2f}")
+    col3.metric("ค่าซ่อมบำรุงรวม", f"฿{total_maint:,.2f}")
+    col4.metric("กำไรสุทธิเบื้องต้น", f"฿{net_profit:,.2f}", delta=f"{net_profit:,.2f}")
+    
+    st.divider()
+    st.subheader("📋 บัญชีรอบวิ่งงาน (Trips Ledger)")
+    st.dataframe(trips_df, use_container_width=True)
+    st.subheader("🔧 บัญชีค่าใช้จ่ายซ่อมบำรุง")
+    st.dataframe(maint_df, use_container_width=True)
+
+# -----------------------------------------------------------------------------
+# 6. มุมมอง: เจ้าของธุรกิจ (Owner) - Full Control + GPS Setting
+# -----------------------------------------------------------------------------
+elif user_role == "เจ้าของธุรกิจ (Owner)":
+    st.header("👑 แดชบอร์ดผู้บริหาร (Owner Full Access)")
+    owner_tabs = st.tabs(["📈 ภาพรวมกองรถ", "🌐 เชื่อมต่อ GPS API", "💵 จัดการรายรับ", "⚙️ จัดการฐานข้อมูล"])
+    
+    with owner_tabs[0]:
+        st.subheader("สถานะและพิกัดรถทั้งหมด")
+        v_data = run_query("SELECT * FROM vehicles")
+        if not v_data.empty:
+            st.map(v_data, latitude="lat", longitude="lon")
+        st.dataframe(v_data, use_container_width=True)
+
+    with owner_tabs[1]:
+        st.subheader("🛰️ ตั้งค่าและเชื่อมต่อ GPS Box / API Gateway")
+        st.markdown("**ผูก API อัตโนมัติจากเซิร์ฟเวอร์ GPS ภายนอก (เช่น Traccar / Tracksolid):**")
         
-        # ทุกฝ่ายใช้ st.data_editor ตัวเต็มตัวเดียวกันทั้งหมด ปลดล็อกการกรอกข้อมูล 100%
-        edited_df = st.data_editor(
-            df, 
-            use_container_width=True, 
-            num_rows="dynamic", 
-            hide_index=True, 
-            column_config=base_column_config
-        )
-        
-        if st.button("💾 บันทึกข้อมูลที่แก้ไขทั้งหมดเข้าสู่ระบบส่วนกลาง", use_container_width=True, type="primary"):
-            st.session_state['trucks_db'] = edited_df
-            st.success("✅ บันทึกข้อมูลและส่งรายงานอัปเดตระบบเรียบร้อยแล้ว!")
-            st.rerun()
+        col_a, col_b = st.columns(2)
+        with col_a:
+            api_url = st.text_input("GPS Server API URL:", placeholder="http://your-gps-server.com:8082/api/positions")
+            api_key = st.text_input("API Key / Bearer Token:", type="password")
+        with col_b:
+            target_truck = st.selectbox("เลือกทะเบียนรถที่ต้องการจับคู่:", run_query("SELECT plate_number FROM vehicles")['plate_number'].tolist())
+            device_id = st.text_input("GPS Device Tracker ID / IMEI:", placeholder="เช่น 868120045091234")
             
-    with tab2:
-        render_thai_map(df)
+        if st.button("🔗 ทดสอบและเชื่อมต่อพิกัดสด"):
+            if api_url:
+                data = fetch_live_gps_from_api(api_url, api_key)
+                if data:
+                    st.success("เชื่อมต่อ API สำเร็จ! ดึงพิกัดล่าสุดเรียบร้อย")
+                else:
+                    st.warning("ไม่สามารถเชื่อมต่อ Server ได้ ระบบกำลังจำลองสัญญาณ GPS เพื่อทดสอบ")
+            else:
+                st.info("โหมดจำลอง: ผูกรหัส GPS Device ID สำเร็จ")
+                
+            run_query("UPDATE vehicles SET gps_device_id = ? WHERE plate_number = ?", (device_id, target_truck), fetch=False)
+            st.rerun()
+
+    with owner_tabs[2]:
+        st.subheader("บันทึกรายได้ของแต่ละเที่ยวงาน")
+        trips_df = run_query("SELECT * FROM trips")
+        st.dataframe(trips_df, use_container_width=True)
         
+        with st.form("update_income_form"):
+            trip_id = st.number_input("Trip ID:", min_value=1, step=1)
+            income_val = st.number_input("รายรับจากงาน (บาท):", min_value=0.0, step=500.0)
+            if st.form_submit_button("บันทึกยอดเงิน"):
+                run_query("UPDATE trips SET income = ? WHERE id = ?", (income_val, trip_id), fetch=False)
+                st.success("อัปเดตยอดเงินสำเร็จ!")
+                st.rerun()
+
+    with owner_tabs[3]:
+        st.subheader("ลบ/แก้ไข ข้อมูลระบบ")
+        del_type = st.selectbox("เลือกหมวดหมู่:", ["รายการงานขนส่ง (Trips)", "ประวัติซ่อมบำรุง (Maintenance)", "ข้อมูลรถ (Vehicle)"])
+        del_id = st.text_input("ระบุ ID หรือ ทะเบียนรถ:")
+        if st.button("🗑️ ยืนยันการลบ"):
+            if del_type == "รายการงานขนส่ง (Trips)":
+                run_query("DELETE FROM trips WHERE id = ?", (del_id,), fetch=False)
+            elif del_type == "ประวัติซ่อมบำรุง (Maintenance)":
+                run_query("DELETE FROM maintenance WHERE id = ?", (del_id,), fetch=False)
+            elif del_type == "ข้อมูลรถ (Vehicle)":
+                run_query("DELETE FROM vehicles WHERE plate_number = ?", (del_id,), fetch=False)
+            st.success("ลบข้อมูลเรียบร้อย!")
+            st.rerun()
