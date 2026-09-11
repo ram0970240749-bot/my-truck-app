@@ -1,5 +1,4 @@
-
-      import streamlit as st
+import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime
@@ -14,8 +13,6 @@ DB_FILE = "truck_fleet.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    
-    # ตารางยานพาหนะ
     c.execute('''
         CREATE TABLE IF NOT EXISTS vehicles (
             plate_number TEXT PRIMARY KEY,
@@ -30,8 +27,6 @@ def init_db():
             is_active INTEGER DEFAULT 1
         )
     ''')
-    
-    # ตารางประวัติงานขนส่ง (เก็บประวัติถาวร)
     c.execute('''
         CREATE TABLE IF NOT EXISTS trips (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,8 +41,6 @@ def init_db():
             created_at TEXT
         )
     ''')
-    
-    # ตารางประวัติบำรุงรักษา
     c.execute('''
         CREATE TABLE IF NOT EXISTS maintenance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,8 +52,6 @@ def init_db():
             logged_by TEXT
         )
     ''')
-    
-    # ข้อมูลเริ่มต้น
     c.execute("SELECT COUNT(*) FROM vehicles")
     if c.fetchone()[0] == 0:
         c.execute("""
@@ -113,16 +104,12 @@ user_role = st.sidebar.selectbox("เข้าสู่ระบบในฐา�
 if user_role == "พนักงานขับรถ (Driver)":
     st.header("📱 พอร์ทัลพนักงานขับรถ (Driver Portal)")
     driver_tabs = st.tabs(["📍 เช็กอิน GPS จากมือถือ", "🗺️ แผนที่กองรถทั้งหมด", "📝 บันทึกเที่ยววิ่ง/ไมล์", "🔧 แจ้งซ่อมบำรุง", "📜 ประวัติย้อนหลัง"])
-    
     vehicles_list = run_query("SELECT plate_number FROM vehicles WHERE is_active = 1")['plate_number'].tolist()
 
-    # Tab 1: ส่งพิกัดจากมือถือ
     with driver_tabs[0]:
         st.subheader("📡 เช็กอินพิกัดสดผ่าน GPS สมาร์ตโฟนของคุณ")
         st.info("💡 กดปุ่มด้านล่างเพื่อแชร์พิกัด GPS ปัจจุบันจากมือถือเข้าสู่แผนที่ส่วนกลางของบริษัท")
-        
         my_truck = st.selectbox("เลือกรถที่คุณกำลังขับอยู่:", vehicles_list, key="my_active_truck")
-        
         st.write("**กดปุ่มเพื่อระบุตำแหน่งของคุณ:**")
         location = streamlit_geolocation()
         
@@ -130,20 +117,16 @@ if user_role == "พนักงานขับรถ (Driver)":
             user_lat = location['latitude']
             user_lon = location['longitude']
             st.success(f"📍 ตรวจพบพิกัดของคุณ: ละติจูด {user_lat:.5f}, ลองจิจูด {user_lon:.5f}")
-            
             if st.button("🚀 ยืนยันการอัปเดตตำแหน่งรถขึ้นระบบแผนที่"):
                 update_vehicle_gps(my_truck, user_lat, user_lon, source="GPS มือถือ")
                 st.success(f"อัปเดตตำแหน่งของรถ {my_truck} สำเร็จแล้ว!")
                 st.rerun()
 
-    # Tab 2: แผนที่กองรถทั้งหมด
     with driver_tabs[1]:
         st.subheader("พิกัดและสถานะรถทั้งหมดในบริษัท")
         vehicles_df = run_query("SELECT plate_number, truck_type, driver_name, status, lat, lon, gps_source, last_updated FROM vehicles WHERE is_active = 1")
-        
         if not vehicles_df.empty:
             st.map(vehicles_df, latitude="lat", longitude="lon", size=20)
-        
         table_driver = vehicles_df.rename(columns={
             "plate_number": "ทะเบียนรถ",
             "truck_type": "ประเภทรถ",
@@ -156,7 +139,6 @@ if user_role == "พนักงานขับรถ (Driver)":
         })
         st.dataframe(table_driver, use_container_width=True, hide_index=True)
 
-    # Tab 3: บันทึกข้อมูลงานขนส่ง
     with driver_tabs[2]:
         st.subheader("บันทึกข้อมูลขั้นตอนการขนส่งและเลขไมล์")
         with st.form("driver_job_form"):
@@ -171,7 +153,6 @@ if user_role == "พนักงานขับรถ (Driver)":
                 cur_km = st.number_input("เลขไมล์ปัจจุบัน (กม.):", min_value=0.0, step=10.0)
                 fuel_spent = st.number_input("ค่าน้ำมันรอบนี้ (บาท):", min_value=0.0, step=100.0)
                 distance = st.number_input("ระยะทางของรอบนี้ (กม.):", min_value=0.0, step=1.0)
-                
             submit_trip = st.form_submit_button("💾 บันทึกข้อมูลขนส่ง")
             if submit_trip:
                 if driver_name and origin and dest:
@@ -180,7 +161,6 @@ if user_role == "พนักงานขับรถ (Driver)":
                         INSERT INTO trips (plate_number, driver_name, origin, destination, trip_status, income, fuel_cost, distance_km, created_at)
                         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
                     """, (selected_truck, driver_name, origin, dest, step_status, fuel_spent, distance, now), fetch=False)
-                    
                     run_query("""
                         UPDATE vehicles 
                         SET last_odometer = ?, status = ?, last_updated = ? 
@@ -190,7 +170,6 @@ if user_role == "พนักงานขับรถ (Driver)":
                 else:
                     st.error("กรุณากรอกข้อมูลให้ครบถ้วน")
 
-    # Tab 4: แจ้งซ่อมบำรุง
     with driver_tabs[3]:
         st.subheader("บันทึกประวัติการบำรุงรักษา / ซ่อมแซม")
         with st.form("driver_maint_form"):
@@ -208,7 +187,6 @@ if user_role == "พนักงานขับรถ (Driver)":
                 """, (m_truck, m_item, m_cost, m_odo, now, m_driver), fetch=False)
                 st.success("บันทึกประวัติการบำรุงรักษาเรียบร้อย!")
 
-    # Tab 5: ประวัติย้อนหลัง
     with driver_tabs[4]:
         st.subheader("ประวัติงานขนส่งย้อนหลังทั้งหมด")
         my_trips = run_query("SELECT plate_number, driver_name, origin, destination, trip_status, fuel_cost, distance_km, created_at FROM trips ORDER BY id DESC")
